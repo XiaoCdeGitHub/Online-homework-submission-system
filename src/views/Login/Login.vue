@@ -1,8 +1,8 @@
 <!--
  * @Author: cuiding 1692338302@qq.com
  * @Date: 2024-06-20 06:22:32
- * @LastEditors: cuiding cuiding@kingsoft.com
- * @LastEditTime: 2025-05-22 18:42:18
+ * @LastEditors: cuiding 1692338302@qq.com
+ * @LastEditTime: 2025-05-23 18:48:22
  * @FilePath: /YunJiaoYunJi-master/src/views/Login/Login.vue
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 -->
@@ -58,7 +58,9 @@ import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { login } from '@/service/api/login'
+import { getUserInfo } from '@/service/api/user'
 import { isPassword } from '@/utils/check'
+import { getCurrentWeeks } from '@/service/api/adminHomework'
 
 // 导入图片资源
 import logoImg from '@/assets/img/login/logo.png'
@@ -101,20 +103,64 @@ const validateForm = () => {
   return true
 }
 
+// 在<script setup>部分的开头添加周数到期数的转换函数
+function getPeriodByWeek(weekNum: number): string {
+  // 极简版本：所有周数都表示为"适应期第X周"
+  if (weekNum <= 0) {
+    return '适应期第0周';
+  }
+  return `适应期第${weekNum}周`;
+}
 
 const handleLogin = async () => {
   if (!validateForm()) return
 
   try {
+    // 清除所有可能与小组相关的本地存储
+    // 在登录前清除所有可能的组数据缓存
+    const keysToRemove = [];
+
+    // 遍历所有localStorage键
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key) {
+        // 清除与组相关的键
+        if (key.includes('group') || key.includes('Group') ||
+          key.startsWith('groupInfo_')) {
+          keysToRemove.push(key);
+        }
+
+        // 清除之前用户提交缓存
+        if (key.includes('submission') || key.includes('Submission')) {
+          keysToRemove.push(key);
+        }
+      }
+    }
+
+    // 删除收集到的键
+    keysToRemove.forEach(key => {
+      localStorage.removeItem(key);
+      console.log('已清除本地缓存:', key);
+    });
+
+    // 清理其他可能的缓存
+    localStorage.removeItem('userData');  // 可能的用户数据缓存
+    localStorage.removeItem('lastLogin'); // 上次登录信息
+    localStorage.removeItem('cachedStats'); // 可能的统计缓存
+    // 清除之前的用户信息和token
+    localStorage.removeItem('token');
+    localStorage.removeItem('userInfo');
+
     const res = await login({
       number: Number(formData.number),
       password: formData.password
     })
 
-    console.log('登录响应:', res) // 添加这一行用于调试
+    console.log('登录响应:', res)
+    console.log('登录响应数据结构:', JSON.stringify(res?.data || {}, null, 2))
 
     if (res?.code === 200) {
-      // 从loginDto中提取数据（直接在res.data中）
+      // 从登录响应中提取数据
       const loginData = res.data || {}
 
       // 保存token
@@ -125,18 +171,121 @@ const handleLogin = async () => {
       }
 
       // 创建用户信息对象结构
-      const userInfo = {
-        // 使用loginDto中的字段
-        name: loginData.name || formData.number?.toString() || '用户',
-        userId: loginData.id || formData.number?.toString() || '',
+      const userInfo: {
+        name: string;
+        userId: string;
+        number: number | null;
+        qqnum: string;
+        direction: string;
+        group: string;
+        period: string;
+        role: string;
+        currentWeek?: number;
+      } = {
+        // 初始化默认值
+        name: '',
+        userId: '',
         number: formData.number || null,
-        qqnum: loginData.qqnum || '',
-        direction: loginData.direction || '全栈方向',
-        // 添加默认值字段
-        group: loginData.group || '未分组',
-        period: loginData.period || '适应期第一周',
-        // 根据isAdmin设置角色
-        role: loginData.isAdmin ? 'admin' : 'user'
+        qqnum: '',
+        direction: '',
+        group: '',
+        period: '',
+        role: 'user',
+        currentWeek: undefined
+      }
+
+      // 从登录响应中获取字段（兼容不同的字段名）
+      userInfo.name = loginData.name || loginData.userName || '';
+      userInfo.userId = loginData.id || loginData.userId || loginData._id || '';
+      userInfo.qqnum = loginData.qqnum || loginData.qq || '';
+      userInfo.direction = loginData.direction || '';
+      userInfo.group = loginData.group || loginData.groupName || '';
+      userInfo.period = loginData.period || '';
+
+      // 根据isAdmin字段设置角色
+      if (loginData.isAdmin === true || loginData.role === 'admin') {
+        userInfo.role = 'admin';
+      }
+
+      // 如果登录响应中没有提供足够的用户信息，尝试通过getUserInfo获取更多详细信息
+      if (!userInfo.userId && !userInfo.name) {
+        console.warn('登录响应中缺少重要的用户信息，尝试获取用户详细信息');
+
+        try {
+          // 尝试使用学号作为ID获取用户信息
+          const userId = userInfo.userId || formData.number?.toString() || '';
+          if (userId) {
+            const userDetailResponse = await getUserInfo(userId);
+
+            if (userDetailResponse.code === 200 && userDetailResponse.data) {
+              const userData = userDetailResponse.data;
+
+              // 更新用户信息
+              if (userData.name) userInfo.name = userData.name;
+              if (userData.id || userData.userId || userData._id) {
+                userInfo.userId = userData.id || userData.userId || userData._id || '';
+              }
+              if (userData.qqnum || userData.qq) userInfo.qqnum = userData.qqnum || userData.qq || '';
+              if (userData.direction) userInfo.direction = userData.direction;
+              if (userData.group || userData.groupName) userInfo.group = userData.group || userData.groupName || '';
+              if (userData.period) userInfo.period = userData.period;
+              if (userData.isAdmin === true) userInfo.role = 'admin';
+
+              console.log('成功获取用户详细信息');
+            } else {
+              console.warn('获取用户详细信息失败:', userDetailResponse.message);
+            }
+          }
+        } catch (detailError) {
+          console.error('获取用户详细信息出错:', detailError);
+        }
+      }
+
+      // 获取当前周数并更新到用户信息中
+      try {
+        const weekResponse = await getCurrentWeeks();
+        if (weekResponse.code === 200 && weekResponse.data !== undefined) {
+          userInfo.currentWeek = weekResponse.data;
+          console.log('登录时获取到当前周数:', weekResponse.data);
+
+          // 根据周数设置对应的期数
+          userInfo.period = getPeriodByWeek(weekResponse.data);
+        } else {
+          console.warn('获取当前周数失败:', weekResponse);
+        }
+      } catch (weekError) {
+        console.error('获取当前周数出错:', weekError);
+      }
+
+      // 优先使用登录响应中的currentWeeks
+      if (loginData.currentWeeks !== undefined) {
+        userInfo.currentWeek = loginData.currentWeeks;
+        // 根据周数设置对应的期数
+        userInfo.period = getPeriodByWeek(loginData.currentWeeks);
+        console.log('使用登录响应中的周数:', loginData.currentWeeks);
+      }
+
+      // 最后检查关键字段是否为空，如有需要填充默认值
+      if (!userInfo.name) {
+        userInfo.name = formData.number?.toString() || '未知用户';
+      }
+
+      if (!userInfo.group) {
+        // 仅在确实没有组别信息时才使用默认值
+        userInfo.group = '未分组';
+      }
+
+      if (!userInfo.direction) {
+        userInfo.direction = '未指定方向';
+      }
+
+      if (!userInfo.period) {
+        // 如果确实没有期数信息，则根据currentWeek设置
+        if (userInfo.currentWeek) {
+          userInfo.period = getPeriodByWeek(userInfo.currentWeek);
+        } else {
+          userInfo.period = '适应期第一周';
+        }
       }
 
       // 保存用户信息
@@ -145,8 +294,8 @@ const handleLogin = async () => {
 
       ElMessage.success('登录成功')
 
-      // 根据isAdmin决定跳转
-      if (loginData.isAdmin) {
+      // 根据role决定跳转
+      if (userInfo.role === 'admin') {
         router.push('/admin')
       } else {
         router.push('/user')

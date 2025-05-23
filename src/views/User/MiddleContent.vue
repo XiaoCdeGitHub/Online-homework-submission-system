@@ -20,19 +20,30 @@
       </div>
       <div class="progress">
         <div class="progress-header">
-          <p>{{ progressTitle }}</p>
-          <el-button type="primary" size="small" circle @click="refreshSubmissionStatus" :loading="refreshingStatus">
-            <el-icon>
-              <Refresh />
-            </el-icon>
-          </el-button>
+          <p>{{ groupProgressTitle }}</p>
+          <div class="progress-buttons">
+            <el-button type="primary" size="small" circle @click="refreshGroupStats" :loading="refreshingGroup">
+              <el-icon>
+                <Refresh />
+              </el-icon>
+            </el-button>
+            <el-button type="success" size="small" circle @click="showGroupDetailDialog">
+              <el-icon>
+                <User />
+              </el-icon>
+            </el-button>
+          </div>
         </div>
-        <el-progress :percentage="progressPercentage" :stroke-width="15" striped striped-flow :duration="10" />
+        <el-progress :percentage="groupProgressPercentage" :stroke-width="15" :color="groupProgressColor" />
         <div class="progress-stats">
-          <span v-if="submissionStats.submissionCount > 0">提交次数: {{ submissionStats.submissionCount }}</span>
-          <span v-if="submissionStats.isSubmittedThisWeek === 1" class="success">已通过: 1</span>
-          <span v-if="submissionStats.submissionCount > 0 && submissionStats.isSubmittedThisWeek === 0"
-            class="pending">待审核: 1</span>
+          <span>本组进度: {{ groupStats.finishedCount }}/{{ groupStats.totalCount }}</span>
+          <span>完成率: {{ groupProgressPercentage }}%</span>
+        </div>
+        <div v-if="groupStats.totalCount <= 1" class="refresh-tip">
+          <el-button type="info" size="small" @click="refreshGroupStats" :loading="refreshingGroup">
+            点击刷新小组进度
+          </el-button>
+          <span class="tip-text">{{ groupStats.totalCount === 0 ? '暂无小组数据' : '正在获取小组信息...' }}</span>
         </div>
       </div>
     </div>
@@ -189,6 +200,75 @@
           </span>
         </template>
       </el-dialog>
+
+      <!-- 小组详情对话框 -->
+      <el-dialog v-model="groupDetailDialogVisible" :title="`小组详情 - 第${currentWeek}周`" width="65%"
+        :before-close="handleCloseGroupDetailDialog" destroy-on-close @open="refreshGroupMembers">
+        <div class="dialog-content">
+          <div class="group-info">
+            <span><strong>方向：</strong>{{ groupStats.direction }}</span>
+            <span><strong>小组：</strong>{{ groupStats.group }}</span>
+            <span><strong>周数：</strong>第{{ currentWeek }}周</span>
+          </div>
+
+          <!-- 小组进度统计卡片 -->
+          <div class="group-stats-summary">
+            <div class="stats-item">
+              <div class="stats-value">{{ groupStats.totalCount }}</div>
+              <div class="stats-label">小组总人数</div>
+            </div>
+            <div class="stats-item highlight">
+              <div class="stats-value">{{ groupStats.finishedCount }}</div>
+              <div class="stats-label">已完成人数</div>
+            </div>
+            <div class="stats-item">
+              <div class="stats-value">{{ groupProgressPercentage }}%</div>
+              <div class="stats-label">完成比例</div>
+            </div>
+          </div>
+
+          <div class="group-members-list">
+            <h4 style="margin-top: 0; margin-bottom: 15px;">小组成员列表</h4>
+
+            <el-empty v-if="groupMembers.length === 0 && !loadingGroupMembers" description="暂无小组成员数据" />
+            <el-table v-else :data="groupMembers" style="width: 100%" row-key="userId"
+              :default-sort="{ prop: 'isFinished', order: 'descending' }" border stripe highlight-current-row
+              v-loading="loadingGroupMembers">
+              <el-table-column prop="name" label="姓名" width="120" sortable>
+                <template #default="scope">
+                  <div class="member-name">
+                    <span>{{ scope.row.name || '未知' }}</span>
+                    <el-tag v-if="scope.row.isSelf" size="small" effect="light" type="primary">我</el-tag>
+                  </div>
+                </template>
+              </el-table-column>
+              <el-table-column prop="submitTime" label="提交时间" min-width="180" sortable>
+                <template #default="scope">
+                  {{ scope.row.submitTime || '未提交' }}
+                </template>
+              </el-table-column>
+              <el-table-column prop="isFinished" label="状态" width="100" sortable align="center">
+                <template #default="scope">
+                  <el-tag :type="scope.row.isFinished ? 'success' : 'danger'" effect="dark">
+                    {{ scope.row.isFinished ? '已完成' : '未完成' }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+        </div>
+
+        <template #footer>
+          <div class="dialog-footer">
+            <el-button @click="refreshGroupMembers" :loading="loadingGroupMembers" type="info">
+              <el-icon>
+                <Refresh />
+              </el-icon> 刷新数据
+            </el-button>
+            <el-button type="primary" @click="groupDetailDialogVisible = false">关闭</el-button>
+          </div>
+        </template>
+      </el-dialog>
     </div>
     <div class="middle-footer">
       <div class="little-boy">
@@ -217,15 +297,40 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import {
   Location, Flag, Finished, Document, User, SuccessFilled, UploadFilled, Warning,
   ChatDotRound, Refresh
 } from '@element-plus/icons-vue'
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
-import { uploadHomework, getHistorySubmit, getSubmissionCount, getRecentTask } from '@/service/api/homework'
+import { uploadHomework, getHistorySubmit, getRecentTask } from '@/service/api/homework'
 import { getCurrentWeeks } from '@/service/api/adminHomework'
+import { getGroupInfo, getSelectCondition } from '@/service/api/adminHomework'
+import { getWeek } from "date-fns";
+import { useStore } from "vuex";
+import SvgIcon from "../../components/SvgIcon/index.vue";
+import { teacherGetCurrent } from "../../api/assignment";
+import { fetchCurrentTask } from "../../api/adminHomework";
+import { ElLoading, ElUpload } from "element-plus";
+import { uploadFile, UploadRawFile } from "../../api/file";
+import { FileStatistic } from "../../models/FileStatistic";
+import { storeToRefs } from "pinia";
+import { useRoleStore } from "@/stores/role";
+import { FileUpload } from "@/models/FileUpload";
+import { Homework } from "@/models/Homeworks";
+import { fileURLToName, getFileIcon, getExt, CSVToArray } from "@/utils/index";
+import GetNameFromPath from "@/components/GetNameFromPath/index.vue";
+import UploadInfo from "@/components/UploadInfo/upload-info.vue";
+import { MarkrareData } from "@/models/MarkrareData";
+import { markrare } from "@/utils/markrare.js";
+import { IMarkedWord, MarkrareEvents } from "@/models/Markrare.interface";
+import { Watch } from "vue-class-component";
+import { useUserStore } from "@/stores/user";
+import { useDirectionStore } from "@/stores/direction";
+import type { UploadUserFile } from "element-plus";
+import { Plus, Delete } from "@element-plus/icons-vue";
+import { cleanExpiredGroupData, generateGroupStorageKey } from "@/utils/localStorage";
 
 // 用户数据，初始化为默认值
 const userData = ref({
@@ -233,18 +338,19 @@ const userData = ref({
   direction: '全栈方向',
   group: '第二组',
   name: '测试用户',
-  id: '测试学号'
+  id: '测试学号',
+  userId: ''  // 添加userId字段
 })
 
 // 上传相关状态
 const comments = ref('')
 const uploading = ref(false)
 const uploadPercentage = ref(0)
-const uploadStatus = ref('')
+const uploadStatus = ref('') as any  // 使用类型断言避免类型错误
 const uploadStatusText = ref('')
 const uploadDialogVisible = ref(false)
 const historyDialogVisible = ref(false)
-const submissionHistory = ref([])
+const submissionHistory = ref<any[]>([])  // 使用any类型避免类型错误
 const currentWeek = ref(1) // 可通过API获取当前周数
 const selectedFile = ref(null) // 添加选中文件的引用
 
@@ -271,13 +377,33 @@ const getStatusText = (status) => {
   }
 }
 
-// 提交统计数据
-const submissionStats = ref({
-  submissionCount: 0,         // 总提交次数
-  isSubmittedThisWeek: 0,     // 是否提交本周作业(0或1)
-  comments: '',               // 备注
-  submitTime: ''              // 提交时间
+// 小组统计数据
+const groupStats = ref({
+  finishedCount: 0,    // 已完成人数
+  totalCount: 0,       // 总人数
+  direction: '',       // 方向
+  group: '',           // 小组
 })
+
+// 小组进度标题
+const groupProgressTitle = ref('本周小组进度')
+
+// 小组进度百分比
+const groupProgressPercentage = computed(() => {
+  if (groupStats.value.totalCount === 0) return 0
+  return Math.round((groupStats.value.finishedCount / groupStats.value.totalCount) * 100)
+})
+
+// 小组进度条颜色
+const groupProgressColor = computed(() => {
+  const percentage = groupProgressPercentage.value
+  if (percentage >= 80) return '#67C23A' // 绿色
+  if (percentage >= 50) return '#E6A23C' // 黄色
+  return '#F56C6C' // 红色
+})
+
+// 刷新小组状态标志
+const refreshingGroup = ref(false)
 
 // 计算时段问候语
 const greeting = computed(() => {
@@ -291,42 +417,51 @@ const greeting = computed(() => {
   return '夜深了'
 })
 
-// 计算提交进度
-const progressPercentage = computed(() => {
-  if (submissionStats.value.submissionCount === 0) return 0
-  if (submissionStats.value.isSubmittedThisWeek === 1) return 100
-  return submissionStats.value.submissionCount > 0 ? 50 : 0 // 如果有提交但本周未提交，显示50%
-})
-
 // 从本地存储获取用户信息
 const getUserInfoFromStorage = () => {
   try {
     const userInfoStr = localStorage.getItem('userInfo')
-    console.log('Storage user info:', userInfoStr)
+    // console.log('本地存储中用户信息:', userInfoStr)
 
     if (userInfoStr && userInfoStr !== 'undefined' && userInfoStr !== 'null') {
       const userInfo = JSON.parse(userInfoStr)
+
+      // 提取userId，确保优先使用userId，如果没有则使用number作为备选
+      const userId = userInfo.userId || userInfo.number || '';
 
       // 更新用户数据
       userData.value = {
         period: userInfo.period || '适应期第一周',
         direction: userInfo.direction || '全栈方向',
-        group: userInfo.group || '第二组',
+        group: userInfo.group || '未知小组', // 确保有默认组别值
         name: userInfo.name || '未知用户',
         id: userInfo.number || userInfo.userId || '未知ID',
-        userId: userInfo.userId || userInfo.number || ''
+        userId: userId // 显式保存userId
       }
+
       return {
-        userId: userInfo.userId || userInfo.number || '',
-        direction: userInfo.direction || '全栈方向'
+        userId: userId,
+        direction: userInfo.direction || '全栈方向',
+        group: userInfo.group || '未知小组', // 确保返回组信息
+        name: userInfo.name || '未知用户'
       }
     } else {
-      console.warn('本地存储中没有有效用户信息')
-      return { userId: '', direction: '全栈方向' }
+      // console.warn('本地存储中没有有效用户信息')
+      return {
+        userId: '',
+        direction: '全栈方向',
+        group: '未知小组',
+        name: '未知用户'
+      }
     }
   } catch (error) {
     console.error('获取用户信息失败:', error)
-    return { userId: '', direction: '全栈方向' }
+    return {
+      userId: '',
+      direction: '全栈方向',
+      group: '未知小组',
+      name: '未知用户'
+    }
   }
 }
 
@@ -379,11 +514,32 @@ const handleUploadSuccess = (response, file, fileList) => {
     uploadPercentage.value = 100
     uploadStatus.value = 'success'
     uploadStatusText.value = '上传成功！'
-    ElMessage.success('文件上传成功')
+    ElMessage.success('作业上传成功！小组进度稍后将自动更新')
+    selectedFile.value = null // 清空选中的文件
+    comments.value = '' // 清空备注
+
+    // 上传成功后延迟一小段时间再刷新小组进度（给后端一点处理时间）
+    setTimeout(async () => {
+      try {
+        // 刷新小组进度
+        await refreshGroupStats()
+        // 刷新历史记录
+        await loadSubmissionHistory()
+      } catch (refreshError) {
+        console.error('刷新数据失败:', refreshError)
+      }
+    }, 1500)
   } else {
     uploadStatus.value = 'exception'
-    uploadStatusText.value = `上传失败: ${response.message || '未知错误'}`
-    ElMessage.error(response.message || '上传失败')
+
+    // 针对常见错误优化提示信息
+    if (response.code === 404) {
+      uploadStatusText.value = '上传失败：服务器接口未找到，请联系管理员'
+      ElMessage.error('服务器接口未找到，请联系管理员检查系统配置')
+    } else {
+      uploadStatusText.value = `上传失败：${response.message || '未知错误'}`
+      ElMessage.error(response.message || '上传失败，请稍后重试')
+    }
   }
 
   // 刷新提交历史
@@ -442,14 +598,17 @@ const proceedWithSubmission = async () => {
 
   try {
     const formData = new FormData()
-    formData.append('file', selectedFile.value)
+    if (selectedFile.value) {
+      formData.append('file', selectedFile.value)
+    }
     formData.append('userId', getUserInfoFromStorage().userId)
 
     // 确保备注有值，即使是空字符串
     const commentText = comments.value?.trim() || '无备注'
     formData.append('comments', commentText)
 
-    formData.append('weeks', currentWeek.value)
+    // 将 currentWeek 转换为字符串
+    formData.append('weeks', currentWeek.value.toString())
 
     // 提交时间格式化: yyyy-MM-dd HH:mm:ss
     const now = new Date()
@@ -473,7 +632,7 @@ const proceedWithSubmission = async () => {
 
     // 调用API上传作业
     const response = await uploadHomework(formData)
-    console.log('上传作业响应:', response)
+    // console.log('上传作业响应:', response)
 
     clearInterval(progressInterval)
 
@@ -481,52 +640,45 @@ const proceedWithSubmission = async () => {
       uploadPercentage.value = 100
       uploadStatus.value = 'success'
       uploadStatusText.value = '上传成功！'
-      ElMessage.success('作业上传成功')
+      ElMessage.success('作业上传成功！小组进度稍后将自动更新')
       selectedFile.value = null // 清空选中的文件
       comments.value = '' // 清空备注
 
-      // 手动更新提交状态，确保UI立即反映上传成功
-      submissionStats.value = {
-        submissionCount: submissionStats.value.submissionCount + 1,
-        isSubmittedThisWeek: 1, // 设置为已提交本周作业
-        comments: commentText,
-        submitTime: submitTime
-      }
-
-      console.log('手动更新后的提交统计:', submissionStats.value)
-      console.log('更新后进度百分比:', progressPercentage.value)
-
-      // 立即更新标题
-      updateProgressTitle()
-
-      // 上传成功后刷新提交统计
-      setTimeout(() => {
-        loadSubmissionStats()
-        // 并检查历史记录以双重确认
-        setTimeout(checkSubmissionHistory, 500)
-      }, 1000)
+      // 上传成功后延迟一小段时间再刷新小组进度（给后端一点处理时间）
+      setTimeout(async () => {
+        try {
+          // 刷新小组进度
+          await refreshGroupStats()
+          // 刷新历史记录
+          await loadSubmissionHistory()
+        } catch (refreshError) {
+          console.error('刷新数据失败:', refreshError)
+        }
+      }, 1500)
     } else {
       uploadStatus.value = 'exception'
 
-      // 针对常见错误优化提示信息
-      if (response.code === 404) {
+      // 改进错误提示
+      const err = response as any; // 使用类型断言
+      if (err.message && err.message.includes('404')) {
         uploadStatusText.value = '上传失败：服务器接口未找到，请联系管理员'
         ElMessage.error('服务器接口未找到，请联系管理员检查系统配置')
       } else {
-        uploadStatusText.value = `上传失败：${response.message || '未知错误'}`
-        ElMessage.error(response.message || '上传失败，请稍后重试')
+        uploadStatusText.value = `上传失败：${err.message || '未知错误'}`
+        ElMessage.error(err.message || '上传失败，请重试')
       }
     }
   } catch (error) {
     uploadStatus.value = 'exception'
 
     // 改进错误提示
-    if (error.message && error.message.includes('404')) {
+    const err = error as any; // 使用类型断言
+    if (err.message && err.message.includes('404')) {
       uploadStatusText.value = '上传失败：服务器接口未找到，请联系管理员'
       ElMessage.error('服务器接口未找到，请联系管理员检查系统配置')
     } else {
-      uploadStatusText.value = `上传失败：${error.message || '未知错误'}`
-      ElMessage.error(error.message || '上传失败，请重试')
+      uploadStatusText.value = `上传失败：${err.message || '未知错误'}`
+      ElMessage.error(err.message || '上传失败，请重试')
     }
 
     console.error('上传作业失败:', error)
@@ -553,7 +705,8 @@ const viewHistory = async () => {
       ElMessage.error(response.message || '获取历史记录失败')
     }
   } catch (error) {
-    ElMessage.error(error.message || '获取历史记录失败，请重试')
+    const err = error as any; // 使用类型断言
+    ElMessage.error(err.message || '获取历史记录失败，请重试')
     console.error('获取历史提交失败:', error)
   }
 }
@@ -561,7 +714,8 @@ const viewHistory = async () => {
 // 加载提交历史
 const loadSubmissionHistory = async () => {
   try {
-    const userId = userData.value.userId
+    // 修复：使用正确的userId访问方式
+    const userId = userData.value.userId || getUserInfoFromStorage().userId;
     if (!userId) {
       ElMessage.warning('获取用户ID失败，无法加载提交历史')
       return
@@ -576,79 +730,6 @@ const loadSubmissionHistory = async () => {
   } catch (error) {
     console.error('获取提交历史失败:', error)
     ElMessage.error('获取提交历史失败，请重试')
-  }
-}
-
-// 加载提交统计数据
-const loadSubmissionStats = async () => {
-  try {
-    const { userId } = getUserInfoFromStorage()
-    if (!userId) return
-
-    console.log(`正在获取第${currentWeek.value}周的提交统计数据...`)
-    const response = await getSubmissionCount(userId, currentWeek.value)
-    console.log('提交统计API响应:', response)
-
-    if (response.code === 200 && response.data) {
-      // 更新提交统计数据
-      submissionStats.value = {
-        submissionCount: response.data.submissionCount || 0,
-        isSubmittedThisWeek: response.data.isSubmittedThisWeek || 0,
-        comments: response.data.comments || '',
-        submitTime: response.data.submitTime || ''
-      }
-
-      console.log('提交统计数据已更新:', submissionStats.value)
-      console.log('进度百分比:', progressPercentage.value)
-
-      // 强制触发UI更新
-      updateProgressTitle()
-    } else {
-      console.warn('获取提交统计失败，使用默认值')
-
-      // 检查历史提交记录 - 如果有当前周的提交记录，手动设置状态
-      checkSubmissionHistory()
-    }
-  } catch (error) {
-    console.error('获取提交统计失败:', error)
-
-    // 发生错误时，检查历史提交记录作为备选方案
-    checkSubmissionHistory()
-  }
-}
-
-// 从历史记录检查是否有当前周的提交
-const checkSubmissionHistory = async () => {
-  try {
-    const { userId } = getUserInfoFromStorage()
-    if (!userId) return
-
-    console.log('尝试从历史记录确认提交状态...')
-    const response = await getHistorySubmit(userId)
-
-    if (response.code === 200 && response.data && response.data.length > 0) {
-      // 查找当前周的提交记录
-      const currentWeekSubmission = response.data.find(item =>
-        parseInt(item.weeks) === parseInt(currentWeek.value)
-      )
-
-      if (currentWeekSubmission) {
-        console.log('在历史记录中找到当前周提交:', currentWeekSubmission)
-
-        // 手动更新提交状态
-        submissionStats.value = {
-          submissionCount: 1,
-          isSubmittedThisWeek: 1, // 在历史记录中找到，则设为已提交
-          comments: currentWeekSubmission.comments || '',
-          submitTime: currentWeekSubmission.submitTime || ''
-        }
-
-        console.log('根据历史记录更新统计数据:', submissionStats.value)
-        updateProgressTitle()
-      }
-    }
-  } catch (error) {
-    console.error('获取历史提交失败:', error)
   }
 }
 
@@ -670,8 +751,8 @@ let month = currentDate.getMonth() + 1;
 // 获取日期
 let day = currentDate.getDate();
 const nowDate = year + '-' + month + '-' + day;
-// 打印当前日期
-console.log(nowDate, 'nowDate');
+
+// console.log(nowDate, 'nowDate');
 
 function getCurrentTime() {
   let currentTime = new Date();
@@ -679,16 +760,10 @@ function getCurrentTime() {
   let minutes = currentTime.getMinutes();
   let seconds = currentTime.getSeconds();
   // 格式化小时、分钟和秒，以确保始终为两位数
-  if (hours < 10) {
-    hours = '0' + hours;
-  }
-  if (minutes < 10) {
-    minutes = '0' + minutes;
-  }
-  if (seconds < 10) {
-    seconds = '0' + seconds;
-  }
-  let timeString = hours + ':' + minutes + ':' + seconds;
+  let hoursStr = hours < 10 ? '0' + hours : hours.toString();
+  let minutesStr = minutes < 10 ? '0' + minutes : minutes.toString();
+  let secondsStr = seconds < 10 ? '0' + seconds : seconds.toString();
+  let timeString = hoursStr + ':' + minutesStr + ':' + secondsStr;
   return timeString;
 }
 
@@ -704,11 +779,38 @@ const fetchCurrentWeek = async () => {
     const response = await getCurrentWeeks()
     if (response.code === 200) {
       currentWeek.value = response.data || 1
+
+      // 更新到localStorage，确保用户信息中包含最新周数
+      try {
+        const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}');
+        userInfo.currentWeek = currentWeek.value;
+        localStorage.setItem('userInfo', JSON.stringify(userInfo));
+        // console.log('更新localStorage中的周数:', currentWeek.value);
+      } catch (e) {
+        console.error('更新localStorage中的周数失败:', e);
+      }
+
+      return true; // 表示成功获取
+    } else {
+      console.warn('获取周数API返回非200状态码:', response);
+      return false; // 表示获取失败
     }
   } catch (error) {
     console.error('获取当前周数失败:', error)
-    // 失败时默认使用第一周
+    // 失败时尝试从localStorage获取
+    try {
+      const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}');
+      if (userInfo.currentWeek) {
+        currentWeek.value = userInfo.currentWeek;
+        return true;
+      }
+    } catch (e) {
+      console.error('从localStorage获取周数失败:', e);
+    }
+
+    // 如果API和localStorage都失败，使用默认值
     currentWeek.value = 1
+    return false;
   }
 }
 
@@ -720,107 +822,632 @@ const fetchCurrentTask = async () => {
 
     // 使用当前周数作为参数
     const weeks = currentWeek.value || 1;
-    console.log('MiddleContent请求作业数据:', { direction, weeks });
 
-    const response = await getRecentTask(userId, direction, weeks)
-    if (response.code === 200 && response.data) {
-      // 设置进度信息
-      progressTitle.value = `第${response.data.weeks || weeks}周 进度`
-    } else if (response.code === -1 && response.message === '没有查到最新作业') {
-      // 没有作业时显示当前周数
-      progressTitle.value = `第${weeks}周 进度`
-      console.log('MiddleContent没有找到本周作业，使用默认标题');
-    }
+    // 更新小组进度标题，包含周数信息
+    updateGroupProgressTitle();
+
+    // 获取小组统计数据
+    await loadGroupStats();
+
   } catch (error) {
     console.error('获取当前任务失败:', error)
   }
 }
 
-// 组件挂载时的操作
-onMounted(async () => {
-  getUserInfoFromStorage()
-  await fetchCurrentWeek()
-  console.log('当前周数:', currentWeek.value)
-  await fetchCurrentTask()
-
-  // 首先尝试从提交统计获取状态
-  await loadSubmissionStats()
-
-  // 如果提交统计返回未提交，再尝试从历史记录确认
-  if (submissionStats.value.isSubmittedThisWeek === 0) {
-    await checkSubmissionHistory()
-  }
-
-  // 根据提交状态更新进度标题
-  updateProgressTitle()
-  console.log('初始加载后的提交统计:', submissionStats.value)
-  console.log('初始进度百分比:', progressPercentage.value)
-})
-
-// 添加进度标题
-const progressTitle = ref('本周进度')
-
-// 监听提交统计变化，更新进度标题
-watch(submissionStats, () => {
-  updateProgressTitle()
-})
-
-// 更新进度标题
-const updateProgressTitle = () => {
-  const weekText = `第${currentWeek.value}周`
-
-  if (submissionStats.value.isSubmittedThisWeek === 1) {
-    progressTitle.value = `${weekText} - 已提交`
-  } else if (submissionStats.value.submissionCount > 0) {
-    progressTitle.value = `${weekText} - 提交审核中`
-  } else {
-    progressTitle.value = `${weekText} - 未提交`
-  }
-}
-
-// 添加刷新提交状态的逻辑
-const refreshingStatus = ref(false)
-const refreshSubmissionStatus = async () => {
-  if (refreshingStatus.value) return
-  refreshingStatus.value = true
+// 添加刷新周数和任务的功能
+const refreshingWeek = ref(false)
+const refreshWeekAndTask = async () => {
+  if (refreshingWeek.value) return
+  refreshingWeek.value = true
 
   try {
-    console.log('手动刷新提交状态...')
+    // console.log('手动刷新周数和任务...')
+    const success = await fetchCurrentWeek()
 
-    // 重新获取周数
-    await fetchCurrentWeek()
-    console.log('刷新当前周数:', currentWeek.value)
+    if (success) {
+      ElMessage.success(`已更新到第${currentWeek.value}周`)
+      await fetchCurrentTask()
 
-    // 重置状态
-    submissionStats.value = {
-      submissionCount: 0,
-      isSubmittedThisWeek: 0,
-      comments: '',
-      submitTime: ''
+      // 同时刷新小组统计
+      await loadGroupStats()
+    } else {
+      ElMessage.warning('获取最新周数失败，请稍后再试')
     }
-
-    // 先尝试从提交统计API获取
-    await loadSubmissionStats()
-
-    // 如果API未显示已提交，检查历史记录
-    if (submissionStats.value.isSubmittedThisWeek === 0) {
-      await checkSubmissionHistory()
-    }
-
-    // 强制更新UI
-    updateProgressTitle()
-
-    console.log('刷新后的提交统计:', submissionStats.value)
-    console.log('刷新后的进度百分比:', progressPercentage.value)
-
-    ElMessage.success('提交统计刷新成功')
   } catch (error) {
-    console.error('刷新提交统计失败:', error)
-    ElMessage.error('刷新提交统计失败，请稍后重试')
+    console.error('刷新周数和任务失败:', error)
+    ElMessage.error('刷新失败，请稍后重试')
   } finally {
-    refreshingStatus.value = false
+    refreshingWeek.value = false
   }
 }
+
+// 更新小组进度标题
+const updateGroupProgressTitle = () => {
+  const weekText = `第${currentWeek.value}周`;
+  groupProgressTitle.value = `${weekText} - ${groupStats.value.direction} ${groupStats.value.group} 提交进度`
+}
+
+// 获取小组进度信息
+const loadGroupStats = async () => {
+  try {
+    const userInfo = getUserInfoFromStorage()
+
+    // 如果没有方向或小组信息，设置默认值
+    if (!userInfo.direction || !userInfo.group || userInfo.group === '未分组') {
+      groupStats.value = {
+        finishedCount: 0,
+        totalCount: 0,
+        direction: userInfo.direction || '未知方向',
+        group: userInfo.group || '未知小组'
+      }
+      updateGroupProgressTitle()
+      return
+    }
+
+    // 更新小组基本信息到状态
+    groupStats.value.direction = userInfo.direction
+    groupStats.value.group = userInfo.group
+
+    // 构建请求参数
+    const params = {
+      direction: userInfo.direction,
+      group: userInfo.group,
+      weeks: currentWeek.value
+    }
+
+    console.log('获取小组进度信息参数:', params)
+
+    // 使用工具函数生成用户特定的localStorage键
+    const groupStorageKey = generateGroupStorageKey(userInfo, currentWeek.value)
+
+    // 调用getGroupInfo API获取小组进度
+    const response = await getGroupInfo(params)
+    console.log('小组进度API响应:', response)
+
+    if (response.code === 200 && response.data) {
+      // ===== 修复：优先处理直接返回的allCount和finishCount =====
+      if (response.data.allCount !== undefined && response.data.finishCount !== undefined) {
+        // 直接使用后端返回的统计数据
+        groupStats.value = {
+          ...groupStats.value,
+          finishedCount: response.data.finishCount || 0,
+          totalCount: response.data.allCount || 1 // 确保总人数至少为1，避免除以0错误
+        }
+        console.log('使用后端返回的统计数据:', groupStats.value)
+      }
+      // 如果没有直接返回统计数据，则尝试从学生列表计算
+      else if (response.data.studentList) {
+        // 获取学生列表
+        const studentList = Array.isArray(response.data.studentList) ? response.data.studentList : []
+        console.log('小组学生列表:', studentList)
+
+        // 计算已完成人数
+        const finishedCount = studentList.filter(student => {
+          // 使用检查并修正函数获取正确的完成状态
+          return checkAndFixFinishCondition(student);
+        }).length;
+
+        // 更新小组统计数据
+        groupStats.value = {
+          ...groupStats.value,
+          finishedCount: finishedCount,
+          totalCount: studentList.length || 1 // 确保总人数至少为1，避免除以0错误
+        }
+      }
+      // 如果两种数据都没有，使用默认值
+      else {
+        console.warn('API返回数据中既没有统计数据也没有学生列表')
+        groupStats.value = {
+          ...groupStats.value,
+          finishedCount: 0,
+          totalCount: 1
+        }
+      }
+
+      // 缓存小组信息到localStorage - 使用用户特定的键
+      try {
+        const groupInfoToSave = {
+          code: 200,
+          message: "获取小组信息成功",
+          data: {
+            allCount: groupStats.value.totalCount,
+            finishCount: groupStats.value.finishedCount,
+            userId: userInfo.userId,
+            direction: userInfo.direction,
+            group: userInfo.group,
+            weeks: currentWeek.value,
+            timestamp: Date.now()
+          }
+        }
+        localStorage.setItem(groupStorageKey, JSON.stringify(groupInfoToSave))
+        console.log('已将小组信息保存到 localStorage:', groupStorageKey, groupInfoToSave)
+      } catch (saveError) {
+        console.error('保存小组信息到 localStorage 失败:', saveError)
+      }
+    } else {
+      console.warn('获取小组进度数据失败:', response.message)
+
+      // 尝试从localStorage读取缓存数据 - 使用用户特定的键
+      try {
+        const localGroupInfo = localStorage.getItem(groupStorageKey)
+        if (localGroupInfo && localGroupInfo !== 'undefined' && localGroupInfo !== 'null') {
+          const groupInfoData = JSON.parse(localGroupInfo)
+
+          // 验证数据的有效性和所属用户
+          if (groupInfoData.code === 200 &&
+            groupInfoData.data &&
+            groupInfoData.data.userId === userInfo.userId &&
+            groupInfoData.data.direction === userInfo.direction &&
+            groupInfoData.data.group === userInfo.group) {
+
+            // 检查数据是否过期（1小时）
+            const isExpired = (Date.now() - groupInfoData.data.timestamp) > 3600000;
+
+            if (!isExpired) {
+              groupStats.value = {
+                ...groupStats.value,
+                finishedCount: groupInfoData.data.finishCount || 0,
+                totalCount: groupInfoData.data.allCount || 1
+              }
+              console.log('使用缓存的小组统计数据:', groupStorageKey, groupStats.value) // 保留，与小组进度相关
+            } else {
+              console.warn('缓存的小组进度数据已过期')
+            }
+          } else {
+            console.warn('缓存的小组进度数据与当前用户不匹配')
+          }
+        }
+      } catch (error) {
+        console.error('读取缓存的小组进度数据失败:', error)
+      }
+    }
+
+    // 更新小组进度标题
+    updateGroupProgressTitle()
+  } catch (error) {
+    console.error('获取小组进度失败:', error)
+    // 设置默认值以便显示
+    groupStats.value = {
+      ...groupStats.value,
+      finishedCount: 0,
+      totalCount: 1 // 设置为1，以便显示0%进度
+    }
+    updateGroupProgressTitle()
+  }
+}
+
+// 修改 clearGroupStatsCache 函数，清除所有相关缓存
+const clearGroupStatsCache = () => {
+  try {
+    const userInfo = getUserInfoFromStorage()
+    if (userInfo && userInfo.userId) {
+      // 清除特定周的缓存
+      const groupStorageKey = generateGroupStorageKey(userInfo, currentWeek.value)
+      localStorage.removeItem(groupStorageKey)
+      console.log('已清除小组进度缓存:', groupStorageKey)
+
+      // 清除所有可能相关的缓存
+      const keysToRemove = []
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i)
+        if (key && (key.includes('groupInfo') || key.includes('groupStats'))) {
+          keysToRemove.push(key)
+        }
+      }
+
+      keysToRemove.forEach(key => {
+        localStorage.removeItem(key)
+        console.log('已清除额外缓存:', key)
+      })
+
+      // 清除内存中的缓存
+      groupMembers.value = []
+
+      ElMessage.info('已清除所有小组数据缓存')
+    }
+  } catch (e) {
+    console.error('清除缓存失败:', e)
+  }
+}
+
+// 修改 refreshGroupStats 函数，强制刷新
+const refreshGroupStats = async () => {
+  if (refreshingGroup.value) return
+  refreshingGroup.value = true
+
+  // 显示加载提示
+  ElMessage.info('正在刷新小组进度...')
+
+  try {
+    console.log('=== 开始强制刷新小组数据 ===')
+    // 清除可能存在的缓存
+    clearGroupStatsCache()
+
+    // 确保先获取最新周数
+    await fetchCurrentWeek()
+    // 直接调用loadGroupStats加载最新数据
+    await loadGroupStats()
+
+    // 刷新小组成员列表
+    await refreshGroupMembers()
+
+    console.log('=== 刷新后的小组成员状态 ===')
+    console.log('完成人数:', groupStats.value.finishedCount)
+    console.log('总人数:', groupStats.value.totalCount)
+    console.log('小组成员列表:', groupMembers.value.map(member => ({
+      name: member.name,
+      userId: member.userId,
+      isFinished: member.isFinished,
+      submitTime: member.submitTime
+    })))
+
+    // 显示成功消息
+    ElMessage.success(`小组进度更新成功：${groupStats.value.direction} ${groupStats.value.group} 完成率: ${groupProgressPercentage.value}%`)
+  } catch (error) {
+    console.error('刷新小组进度失败:', error)
+    ElMessage.error('刷新小组进度失败，请稍后重试')
+  } finally {
+    refreshingGroup.value = false
+  }
+}
+
+// 显示小组详情对话框
+const showGroupDetailDialog = () => {
+  try {
+    console.log('尝试打开小组详情对话框')
+
+    // 打开对话框
+    groupDetailDialogVisible.value = true
+    console.log('对话框状态已设置为可见:', groupDetailDialogVisible.value)
+
+    // 加载小组成员数据
+    refreshGroupMembers()
+
+    // 延迟触发一次重新渲染，解决可能的显示问题
+    setTimeout(() => {
+      if (!groupDetailDialogVisible.value) {
+        console.log('对话框可能未正常显示，尝试重新打开')
+        groupDetailDialogVisible.value = true
+      }
+    }, 300)
+  } catch (error) {
+    console.error('打开小组详情对话框时出错:', error)
+    ElMessage.error('打开小组详情对话框失败，请刷新页面后重试')
+  }
+}
+
+// 小组详情对话框相关状态
+const groupDetailDialogVisible = ref(false)
+const loadingGroupMembers = ref(false)
+const groupMembers = ref<any[]>([])  // 使用any类型避免类型错误
+
+// 处理关闭小组详情对话框
+const handleCloseGroupDetailDialog = (done) => {
+  // 可以在这里添加关闭前的确认逻辑，如果需要的话
+  done()
+}
+
+// 添加检查并修复可能不正确的finishCondition值的函数
+const checkAndFixFinishCondition = (student) => {
+  // 记录原始值，用于调试
+  const originalFinishCondition = student.finishCondition;
+
+  // 检查is_submitted_this_week字段（如果存在）
+  if (student.is_submitted_this_week !== undefined) {
+    const shouldBeFinished = student.is_submitted_this_week === 1;
+    const currentFinished = student.finishCondition === '已完成';
+
+    // 如果两者不一致，修正finishCondition
+    if (shouldBeFinished !== currentFinished) {
+      console.warn(`发现finishCondition与is_submitted_this_week不一致:`, {
+        user: student.name || student.user_name,
+        userId: student.userId,
+        is_submitted_this_week: student.is_submitted_this_week,
+        finishCondition: student.finishCondition
+      });
+
+      // 使用is_submitted_this_week的值来确定finishCondition
+      student.finishCondition = shouldBeFinished ? '已完成' : '未完成';
+
+      console.log(`已修正finishCondition:`, {
+        user: student.name || student.user_name,
+        userId: student.userId,
+        oldValue: originalFinishCondition,
+        newValue: student.finishCondition
+      });
+    }
+  }
+
+  // 确保返回布尔值
+  return student.finishCondition === '已完成';
+};
+
+// 修改 refreshGroupMembers 函数，检查finishCondition的有效性
+const refreshGroupMembers = async () => {
+  loadingGroupMembers.value = true
+  try {
+    const userInfo = getUserInfoFromStorage()
+    const userId = userInfo.userId
+    const direction = userInfo.direction || '前端'
+    const group = userInfo.group || '未知小组'
+
+    if (!userId) {
+      ElMessage.warning('获取用户信息失败，无法刷新小组成员数据')
+      // 即便获取用户信息失败，也要显示对话框并放置一个默认成员（当前用户）
+      groupMembers.value = [{
+        userId: '未知',
+        name: '当前用户',
+        studentId: '未知',
+        isSelf: true,
+        isFinished: false,
+        submitTime: '未提交'
+      }];
+      loadingGroupMembers.value = false
+      return
+    }
+
+    console.log('正在获取小组成员数据:', { direction, group, week: currentWeek.value })
+
+    // 构建参数
+    const params = {
+      direction: direction,
+      group: group,
+      weeks: currentWeek.value
+    }
+
+    // 调用selectCondition接口获取详细的小组成员信息
+    try {
+      console.log('调用 selectCondition 接口，参数:', params)
+      const response = await getSelectCondition(params)
+      console.log('selectCondition响应完整数据:', response)
+
+      if (response && response.code === 200) {
+        if (response.data && Array.isArray(response.data) && response.data.length > 0) {
+          // 添加每个学生的完成状态日志
+          console.log('小组成员原始数据详情:')
+          response.data.forEach(student => {
+            console.log(`学生: ${student.name || student.user_name}`, {
+              userId: student.userId,
+              finishCondition: student.finishCondition,
+              is_apply: student.is_apply,
+              // 调试时尝试其他可能的字段
+              submitted: student.submitted,
+              is_finished: student.is_finished,
+              status: student.status,
+              isSubmitted: student.isSubmitted,
+              originalFinish: student.finishCondition === '已完成'
+            })
+          })
+
+          // 转换数据格式
+          groupMembers.value = response.data.map(student => {
+            // 检查并修正finishCondition
+            const isFinishedStatus = checkAndFixFinishCondition(student);
+
+            // 记录每个学生的原始数据和判断结果
+            console.log(`学生 ${student.name || student.user_name} (${student.userId}) 完成状态:`,
+              { finishCondition: student.finishCondition, isFinished: isFinishedStatus });
+
+            return {
+              userId: student.userId,
+              name: student.name || student.user_name,
+              studentId: student.studentId || student.userId,
+              isSelf: student.userId === userId,
+              isFinished: isFinishedStatus,
+              submitTime: student.submitTime || '未提交'
+            };
+          })
+
+          ElMessage.success(`成功获取${groupMembers.value.length}位小组成员数据`);
+        } else {
+          // 如果没有数据，至少添加当前用户
+          groupMembers.value = [{
+            userId: userId,
+            name: userInfo.name || '当前用户',
+            studentId: userId,
+            isSelf: true,
+            isFinished: false,
+            submitTime: '未提交'
+          }];
+          ElMessage.info('未找到小组成员数据，仅显示当前用户');
+        }
+      } else {
+        // 尝试使用getGroupInfo作为备选方案
+        console.warn('selectCondition接口返回错误，尝试使用getGroupInfo作为备选');
+        await fallbackToGroupInfo(userInfo, direction, group);
+      }
+    } catch (apiError) {
+      console.error('selectCondition接口请求失败:', apiError);
+      ElMessage.warning('获取小组成员详细信息失败，尝试使用备选方案');
+
+      // 尝试使用getGroupInfo作为备选方案
+      await fallbackToGroupInfo(userInfo, direction, group);
+    }
+  } catch (error) {
+    console.error('刷新小组成员数据失败:', error)
+    ElMessage.error('刷新小组成员数据失败，请稍后重试')
+    // 确保至少有一个空数组
+    groupMembers.value = [];
+  } finally {
+    loadingGroupMembers.value = false
+  }
+}
+
+// 添加备选方案函数，当主要接口失败时调用
+const fallbackToGroupInfo = async (userInfo, direction, group) => {
+  try {
+    // 获取小组成员数据
+    const response = await getGroupInfo({
+      direction: direction,
+      group: group,
+      weeks: currentWeek.value
+    })
+    console.log('备选方案getGroupInfo响应:', response)
+
+    if (response && response.code === 200) {
+      // 检查是否有学生列表
+      if (response.data && Array.isArray(response.data.studentList) && response.data.studentList.length > 0) {
+        // 添加每个学生的完成状态日志
+        console.log('备选方案小组成员原始数据:', response.data.studentList.map(student => ({
+          name: student.name || student.user_name,
+          userId: student.userId,
+          finishCondition: student.finishCondition,
+          is_apply: student.is_apply,
+          isFinishedByNewLogic: student.finishCondition === '已完成'
+        })));
+
+        // 处理学生列表
+        groupMembers.value = response.data.studentList.map(student => {
+          // 检查并修正finishCondition
+          const isFinishedStatus = checkAndFixFinishCondition(student);
+
+          console.log(`备选方案学生 ${student.name || '未知'} (${student.userId}) 完成状态:`,
+            { finishCondition: student.finishCondition, isFinished: isFinishedStatus });
+
+          return {
+            ...student,
+            isSelf: student.userId === userInfo.userId,
+            isFinished: isFinishedStatus,
+            submitTime: student.submitTime || (student.is_apply ? '已提交' : '未提交')
+          };
+        });
+
+        ElMessage.info(`使用备选方案获取到${groupMembers.value.length}位小组成员数据`);
+      } else {
+        // 如果没有找到任何学生数据，至少添加当前用户自己
+        groupMembers.value = [{
+          userId: userInfo.userId,
+          name: userInfo.name || '当前用户',
+          studentId: userInfo.userId,
+          isSelf: true,
+          isFinished: false,
+          submitTime: '未提交'
+        }];
+
+        ElMessage.info('未能获取小组详细信息，仅显示当前用户');
+      }
+    } else {
+      ElMessage.error('获取小组成员数据失败：' + (response?.message || '未知错误'));
+      // 添加当前用户作为默认显示
+      groupMembers.value = [{
+        userId: userInfo.userId,
+        name: userInfo.name || '当前用户',
+        studentId: userInfo.userId,
+        isSelf: true,
+        isFinished: false,
+        submitTime: '未提交'
+      }];
+    }
+  } catch (error) {
+    console.error('备选方案也失败:', error);
+    groupMembers.value = [{
+      userId: userInfo.userId,
+      name: userInfo.name || '当前用户',
+      studentId: userInfo.userId,
+      isSelf: true,
+      isFinished: false,
+      submitTime: '未提交'
+    }];
+  }
+}
+
+// 初始化用户信息
+const initUserInfo = () => {
+  try {
+    console.log('开始初始化用户信息...');
+
+    // 获取并更新用户信息
+    const userInfo = getUserInfoFromStorage();
+    console.log('从本地存储获取的用户信息:', userInfo);
+
+    // 如果本地存储没有用户ID，尝试获取URL参数或提示登录
+    if (!userInfo.userId) {
+      console.warn('未在本地存储中找到用户ID，尝试从URL获取');
+      // 从URL获取用户信息（如果有）
+      const urlParams = new URLSearchParams(window.location.search);
+      const urlUserId = urlParams.get('userId');
+
+      if (urlUserId) {
+        console.log('从URL中获取到userId:', urlUserId);
+        // 如果URL中有userId参数，使用它并更新本地存储
+        userData.value.userId = urlUserId;
+        try {
+          const currentUserInfo = JSON.parse(localStorage.getItem('userInfo') || '{}');
+          currentUserInfo.userId = urlUserId;
+          localStorage.setItem('userInfo', JSON.stringify(currentUserInfo));
+          console.log('已将userId更新到本地存储:', urlUserId);
+        } catch (e) {
+          console.error('更新本地存储用户ID失败:', e);
+        }
+      } else {
+        console.warn('未找到用户ID，将使用默认值');
+      }
+    }
+
+    // 显式更新界面上的用户信息
+    document.title = `${userData.value.name || '用户'} - ${userData.value.group || ''}`;
+
+    console.log('用户信息初始化完成:', userData.value);
+    return true;
+  } catch (error) {
+    console.error('初始化用户信息失败:', error);
+    return false;
+  }
+};
+
+// 添加组件生命周期钩子
+onMounted(async () => {
+  try {
+    console.log('组件加载开始...');
+
+    // 初始化用户信息
+    console.log('步骤1: 初始化用户信息');
+    const userInitialized = initUserInfo();
+    if (!userInitialized) {
+      console.warn('用户信息初始化失败，可能影响组件功能');
+      ElMessage.warning('用户信息初始化失败，请检查登录状态')
+    }
+
+    // 获取当前周数
+    console.log('步骤2: 获取当前周数');
+    const weekResult = await fetchCurrentWeek();
+    console.log('周数获取结果:', { success: weekResult, currentWeek: currentWeek.value });
+
+    // 获取当前任务
+    console.log('步骤3: 获取当前任务');
+    await fetchCurrentTask();
+
+    // 加载小组统计数据
+    console.log('步骤4: 加载小组统计数据');
+    await loadGroupStats();
+    console.log('加载后的小组统计结果:', groupStats.value);
+
+    // 加载提交历史
+    console.log('步骤5: 加载提交历史');
+    await loadSubmissionHistory();
+    console.log('提交历史记录数:', submissionHistory.value.length);
+
+    console.log('组件完成所有初始化步骤');
+
+    // 如果没有获取到有效的小组信息，提示用户刷新
+    if (groupStats.value.totalCount <= 0) {
+      ElMessage.info('小组进度数据可能未正确加载，点击进度条右侧刷新按钮可重新获取')
+    }
+  } catch (error) {
+    console.error('组件初始化失败:', error);
+    ElMessage.error('加载用户信息失败，请尝试刷新页面');
+  }
+});
+
+// 组件销毁前清理
+onBeforeUnmount(() => {
+  // 清理可能存在的定时器等资源
+});
+
+// 添加iconStyle属性
+const iconStyle = {
+  marginRight: '4px'
+};
 </script>
 
 <style lang="less" scoped>
@@ -902,29 +1529,100 @@ const refreshSubmissionStatus = async () => {
 
   .progress {
     width: 30%;
-    height: 100%;
+    height: 85%;
     display: flex;
     flex-direction: column;
+    justify-content: space-between;
+    background-color: #f9f9ff;
+    // background-color: red;
+    border-radius: 8px;
+    border: 1px solid #d4d0f5;
+    padding: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+
 
     .progress-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 0 10px;
+      padding: 0 5px;
+      margin-bottom: 10px;
 
       p {
-        margin-top: 10px;
-        font-size: 12px;
+        margin: 0;
+        font-size: 14px;
         font-weight: bold;
+        color: #4a1691;
+      }
+
+      .progress-buttons {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+
+        :deep(.el-button) {
+          background-color: #f0ecfc;
+          background-image: linear-gradient(315deg, #f0ecfc 0%, #c2c7f4 74%);
+          color: #4a1691;
+          border: none;
+          transition: all 0.3s ease;
+
+          &:hover {
+            transform: rotate(180deg);
+            opacity: 0.9;
+          }
+
+          .el-icon {
+            color: #4a1691;
+          }
+        }
       }
     }
 
-    p {
-      margin-top: 10px;
-      font-size: 12px;
-      font-weight: bold;
-      margin-bottom: 10px;
+    :deep(.el-progress-bar__outer) {
+      border-radius: 8px;
+      background-color: #e9e6f7;
     }
+
+    :deep(.el-progress-bar__inner) {
+      border-radius: 8px;
+      transition: width 0.8s ease;
+    }
+
+    .progress-stats {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 8px;
+      font-size: 13px;
+      color: #606266;
+
+      span {
+        margin-right: 10px;
+
+        &:last-child {
+          font-weight: bold;
+        }
+      }
+    }
+
+    .refresh-tip {
+      margin-top: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+
+      .el-button {
+        margin-bottom: 5px;
+      }
+
+      .tip-text {
+        font-size: 12px;
+        color: #909399;
+      }
+    }
+
+
   }
 }
 
@@ -938,11 +1636,10 @@ const refreshSubmissionStatus = async () => {
   background-color: #f1f0f5;
   border-radius: 10px;
   box-shadow: #7d70a9 0px 0px 10px;
-
-
   display: flex;
   flex-direction: row;
   align-items: center;
+  justify-content: center;
 
   .file-upload {
     width: 400px;
@@ -984,6 +1681,11 @@ const refreshSubmissionStatus = async () => {
         height: 240px;
         background-color: green;
         opacity: 0;
+      }
+
+      :deep(.el-upload__tip) {
+        margin-top: 5px;
+        text-align: center;
       }
 
     }
@@ -1060,7 +1762,7 @@ const refreshSubmissionStatus = async () => {
 
   .button-submit {
     width: 100px;
-    height: 82%;
+    // height: 82%;
     background-color: #8A90FA;
     margin-right: 10px;
     border-radius: 10px;
@@ -1210,9 +1912,140 @@ const refreshSubmissionStatus = async () => {
 .dialog-footer {
   display: flex;
   justify-content: flex-end;
+  gap: 10px;
+}
 
-  .el-button+.el-button {
-    margin-left: 12px;
+// 小组详情对话框样式
+.group-members-list {
+  margin-top: 20px;
+  padding: 15px;
+  background-color: #f9f9ff;
+  border-radius: 8px;
+}
+
+.group-stats-summary {
+  margin: 0 auto 20px;
+  max-width: 500px;
+  display: flex;
+  justify-content: space-evenly;
+  padding: 15px;
+  background-color: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.stats-item {
+  text-align: center;
+
+  .stats-value {
+    font-size: 24px;
+    font-weight: bold;
+    color: #606266;
   }
+
+  &.highlight .stats-value {
+    color: #67C23A;
+  }
+
+  .stats-label {
+    margin-top: 8px;
+    font-size: 14px;
+    color: #909399;
+  }
+}
+
+.member-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  span {
+    font-weight: 500;
+  }
+}
+
+.dialog-footer {
+  margin-top: 20px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+// 改进小组详情对话框样式
+:deep(.el-dialog) {
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+
+  .el-dialog__header {
+    padding-bottom: 10px;
+    border-bottom: 1px solid #ebeef5;
+  }
+}
+
+.dialog-content {
+  margin-top: 20px;
+}
+
+.group-info {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  max-width: 600px;
+
+  span {
+    margin-right: 20px;
+  }
+}
+
+.group-members-list {
+  margin-top: 20px;
+  padding: 15px;
+  background-color: #f9f9ff;
+  border-radius: 8px;
+}
+
+.member-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  span {
+    font-weight: 500;
+  }
+}
+
+.group-stats-summary {
+  margin: 0 auto 20px;
+  max-width: 500px;
+  display: flex;
+  justify-content: space-evenly;
+  padding: 15px;
+  background-color: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.stats-item {
+  text-align: center;
+
+  .stats-value {
+    font-size: 24px;
+    font-weight: bold;
+    color: #606266;
+  }
+
+  &.highlight .stats-value {
+    color: #67C23A;
+  }
+
+  .stats-label {
+    margin-top: 8px;
+    font-size: 14px;
+    color: #909399;
+  }
+}
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
 }
 </style>

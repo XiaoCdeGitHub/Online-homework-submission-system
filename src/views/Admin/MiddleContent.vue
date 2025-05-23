@@ -72,7 +72,8 @@
     <!-- 删除用户部分保持不变 -->
     <p class="tip-title">删除用户&nbsp;&nbsp;<span>Delete user</span></p>
     <div class="middle-footer">
-      <img class="fly2-1" src="@/assets/img/admin/fly2.png" alt="" />
+      <img class="fly2-1" :class="{ 'fly-away': isFlyingAway }" src="@/assets/img/admin/fly2.png" alt=""
+        @click="handleFlyAway">
       <div class="body-header">
         <div class="search-box-part" @keyup.enter="deleteSearch()">
           <div id="cover">
@@ -150,6 +151,9 @@ const value1 = ref('')
 const value2 = ref('')
 const applyName = ref('')
 const deleteName = ref('')
+
+// 飞机动画状态
+const isFlyingAway = ref(false)
 
 // 用户列表数据
 const allUserList = ref([])
@@ -475,6 +479,16 @@ const clickToDelete = async () => {
   showCustomConfirm('删除确认', `您确定要删除以下 ${userCount} 位用户吗？用户名：${userNames}`)
 }
 
+// 处理飞机飞走动画
+const handleFlyAway = () => {
+  isFlyingAway.value = true
+
+  // 动画结束后重置状态，让飞机可以再次点击飞走
+  setTimeout(() => {
+    isFlyingAway.value = false
+  }, 2000) // 动画持续时间为2秒
+}
+
 // 初始化
 onMounted(async () => {
   await refreshUserList()
@@ -539,7 +553,13 @@ onMounted(async () => {
   box-shadow: #7d70a9 0px 0px 10px;
   position: relative;
 }
-
+.middle-body,
+.middle-footer{
+  transition: all 0.3s ease;
+  &:hover {
+    transform: translateY(-2px);
+  }
+}
 .top-left-part {
   width: 40%;
   height: 100%;
@@ -580,7 +600,7 @@ onMounted(async () => {
 
 .human-photos {
   position: relative;
-  left: 90px;
+  left: 60px;
   width: 60%;
   display: flex;
   margin-top: 0;
@@ -998,6 +1018,28 @@ button span:after {
   height: 60px;
   top: -40px;
   left: 400px;
+  cursor: pointer;
+  transition: transform 0.3s ease;
+
+  &:hover {
+    transform: scale(1.1);
+  }
+
+  &.fly-away {
+    animation: fly-away 2s ease-in forwards;
+  }
+}
+
+@keyframes fly-away {
+  0% {
+    transform: translateX(0) translateY(0) rotate(0);
+    opacity: 1;
+  }
+
+  100% {
+    transform: translateX(1000px) translateY(-500px) rotate(45deg);
+    opacity: 0;
+  }
 }
 
 .fly2-2 {

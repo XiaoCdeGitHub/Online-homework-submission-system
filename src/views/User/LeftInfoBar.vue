@@ -51,6 +51,27 @@
       </div>
     </div>
 
+    <!-- 登出按钮 -->
+    <div class="logout-container">
+      <el-button type="danger" @click="handleLogout" class="logout-button">
+        <el-icon>
+          <SwitchButton />
+        </el-icon>
+        退出登录
+      </el-button>
+    </div>
+
+    <!-- 登出确认对话框 -->
+    <el-dialog v-model="logoutConfirmVisible" title="确认退出" width="30%" center>
+      <span>确定要退出系统吗？</span>
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button @click="logoutConfirmVisible = false">取消</el-button>
+          <el-button type="danger" @click="confirmLogout">确认退出</el-button>
+        </span>
+      </template>
+    </el-dialog>
+
     <!-- 历史作业对话框 -->
     <el-dialog v-model="historyDialogVisible" title="历史作业" width="70%" destroy-on-close>
       <div v-if="allHomeworksLoading" class="loading-container">
@@ -97,8 +118,16 @@ import { directionOptionList, weekStageList } from '../../data/admin';
 import { publicJobs, updateStatus, deleteUser } from '@/service/api/admin'
 import { ref, onMounted, computed } from 'vue';
 import { ElMessage } from 'element-plus';
-import { Refresh } from '@element-plus/icons-vue';
+import { Refresh, SwitchButton } from '@element-plus/icons-vue';
 import { downloadHomeworkFile, getRecentTask, getAllTasks, getSubmissionCount } from '@/service/api/homework';
+import { getCurrentWeeks } from '@/service/api/adminHomework';
+import { handleUserLogout } from '@/utils/localStorage';
+import { useRouter } from 'vue-router';
+
+// 获取路由器实例
+const router = useRouter();
+// 登出确认对话框状态
+const logoutConfirmVisible = ref(false);
 
 let work = JSON.parse(localStorage.getItem('work')) || {};
 console.log(work, 'work');
@@ -222,19 +251,23 @@ const isExpired = (endTime) => {
 // 从本地存储获取用户信息
 const getUserInfoFromStorage = () => {
   try {
-    const userInfoStr = localStorage.getItem('userInfo');
+    const userInfoStr = localStorage.getItem('userInfo')
     if (userInfoStr && userInfoStr !== 'undefined' && userInfoStr !== 'null') {
-      const userInfo = JSON.parse(userInfoStr);
+      const userInfo = JSON.parse(userInfoStr)
       return {
         userId: userInfo.userId || userInfo.number || '',
-        direction: userInfo.direction || '开发'
-      };
+        direction: userInfo.direction || '全栈方向',
+        group: userInfo.group || '第二组' // 确保返回默认组别
+      }
+    } else {
+      // console.warn('本地存储中没有有效用户信息')
+      return { userId: '', direction: '全栈方向', group: '第二组' }
     }
   } catch (error) {
-    console.error('获取用户信息失败:', error);
+    console.error('获取用户信息失败:', error)
+    return { userId: '', direction: '全栈方向', group: '第二组' }
   }
-  return { userId: '', direction: '开发' };
-};
+}
 
 // 根据提交统计信息检查某周作业是否已提交
 const checkSubmissionStatus = async (userId, currentWeek) => {
@@ -267,6 +300,42 @@ const checkSubmissionStatus = async (userId, currentWeek) => {
   }
 };
 
+// 获取当前周数的辅助函数
+const getCurrentWeek = async () => {
+  try {
+    // 优先通过API获取最新周数
+    const response = await getCurrentWeeks();
+    if (response.code === 200 && response.data) {
+      // 获取成功后，更新到localStorage
+      const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}');
+      userInfo.currentWeek = response.data;
+      localStorage.setItem('userInfo', JSON.stringify(userInfo));
+      console.log('API获取当前周数成功:', response.data);
+      return response.data;
+    }
+
+    // API获取失败，尝试从localStorage读取
+    const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}');
+    const weekFromStorage = userInfo.currentWeek || userInfo.weeks;
+    if (weekFromStorage) {
+      console.log('从localStorage获取周数:', weekFromStorage);
+      return weekFromStorage;
+    }
+
+    console.warn('无法获取当前周数，使用默认值1');
+    return 1; // 默认值仍然保留，作为最后的后备选项
+  } catch (error) {
+    console.error('获取当前周数失败:', error);
+    // 尝试从localStorage读取
+    try {
+      const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}');
+      return userInfo.currentWeek || userInfo.weeks || 1;
+    } catch (e) {
+      return 1; // 发生错误时默认返回第1周
+    }
+  }
+};
+
 // 获取可下载作业列表
 const fetchHomeworks = async () => {
   loading.value = true;
@@ -279,14 +348,14 @@ const fetchHomeworks = async () => {
       return;
     }
 
-    // 获取当前周数
-    const currentWeek = getCurrentWeek();
+    // 获取当前周数 - 修改为await异步调用
+    const currentWeekNum = await getCurrentWeek();
 
     // 先检查用户是否已提交当前周作业
-    const hasSubmitted = await checkSubmissionStatus(userId, currentWeek);
+    const hasSubmitted = await checkSubmissionStatus(userId, currentWeekNum);
 
     // 使用新的接口获取本周作业
-    const res = await getRecentTask(userId, direction, currentWeek);
+    const res = await getRecentTask(userId, direction, currentWeekNum);
     console.log('获取本周作业响应:', res);
 
     // 无论状态码是什么，只要有数据就显示
@@ -334,13 +403,13 @@ const fetchHomeworks = async () => {
       // 构建完整的作业对象
       homeworkList.value = [{
         id: id,
-        title: `第${currentWeek}周作业`, // 使用当前周数作为标题
+        title: `第${currentWeekNum}周作业`, // 使用当前周数作为标题
         notice: data.notice || '暂无说明',
         fileName: fileName,
         fileUrl: data.homeworkUrl,
         startTime: data.startTime,
         endTime: data.endTime,
-        weeks: currentWeek, // 使用当前周数
+        weeks: currentWeekNum, // 使用当前周数
         direction: direction,
         isSubmitted: submittedStatus // 从submittedStatus判断是否已提交
       }];
@@ -364,19 +433,6 @@ const fetchHomeworks = async () => {
     homeworkList.value = [];
   } finally {
     loading.value = false;
-  }
-};
-
-// 获取当前周数的辅助函数
-const getCurrentWeek = () => {
-  // 从用户信息中获取当前周数
-  try {
-    const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}');
-    // 优先使用currentWeek字段，如果没有则尝试使用其他可能的字段
-    return userInfo.currentWeek || userInfo.weeks || 1; // 默认返回第1周
-  } catch (error) {
-    console.error('获取当前周数失败:', error);
-    return 1; // 发生错误时默认返回第1周
   }
 };
 
@@ -432,6 +488,59 @@ const showHistoryHomeworksDialog = () => {
   fetchAllHomeworks().finally(() => {
     allHomeworksLoading.value = false;
   });
+};
+
+// 处理登出点击
+const handleLogout = () => {
+  logoutConfirmVisible.value = true;
+};
+
+// 确认登出
+const confirmLogout = () => {
+  try {
+    // 调用登出工具函数清理缓存
+    handleUserLogout();
+
+    // 清除用户信息
+    localStorage.removeItem('userInfo');
+    localStorage.removeItem('token');
+
+    // 清除所有与小组相关的缓存
+    const keysToRemove = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key) {
+        // 清除组相关的缓存
+        if (key.includes('group') || key.includes('Group') ||
+          key.startsWith('groupInfo_')) {
+          keysToRemove.push(key);
+        }
+
+        // 清除提交相关的缓存
+        if (key.includes('submission') || key.includes('Submission')) {
+          keysToRemove.push(key);
+        }
+      }
+    }
+
+    // 删除收集的键
+    keysToRemove.forEach(key => {
+      localStorage.removeItem(key);
+      console.log('登出时清除本地缓存:', key);
+    });
+
+    // 显示消息
+    ElMessage.success('已成功退出登录');
+
+    // 关闭确认对话框
+    logoutConfirmVisible.value = false;
+
+    // 重定向到登录页面
+    router.push('/login');
+  } catch (error) {
+    console.error('登出失败:', error);
+    ElMessage.error('退出登录失败，请重试');
+  }
 };
 </script>
 
@@ -638,10 +747,12 @@ input {
   margin-bottom: 15px;
 
   .notice {
-    font-size: 13px;
-    color: #666;
+    font-size: 18px;
+    color: #4a1691;
     margin: 5px 0;
     line-height: 1.4;
+    line-height: 40px;
+    font-weight: bold;
   }
 
   .time-info {
@@ -677,5 +788,43 @@ input {
 .homework-list::-webkit-scrollbar-track {
   border-radius: 4px;
   background: #e2e1ed;
+}
+
+.logout-container {
+  position: absolute;
+  bottom: 20px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 0 30px;
+}
+
+.logout-button {
+  width: 80%;
+  background-color: #fff;
+  color: #f56c6c;
+  border: 1px solid #f56c6c;
+  font-weight: bold;
+  transition: all 0.3s ease;
+
+  &:hover {
+    background-color: #f56c6c;
+    color: white;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 10px rgba(245, 108, 108, 0.3);
+  }
+
+  .el-icon {
+    margin-right: 5px;
+  }
+}
+
+.dialog-footer {
+  width: 100%;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
 }
 </style>

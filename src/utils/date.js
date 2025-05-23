@@ -202,50 +202,68 @@ export function getFormatDate(date, dateType) {
   return dateText;
 }
 /** 获取当前为适应期第几周
+ * @param {boolean} asNumber 是否返回数字而非字符串
+ * @return {string|number} 当前周数
  */
-export function getCurrentWeek(){
-    //现在的Date对象实例
-    const nowDate = new Date();
-    //适应期第一周的Date对象实例
-    const firstWeek = new Date(2022, 9, 10);
-    //一周的毫秒数
-    const second = 604800000;
-    //第一周到1970的毫秒数
-    const first = firstWeek.getTime();
-    //现在到1970的毫秒数
-    const now = nowDate.getTime();
-    if (now > first && now < first + second) {
-      return '适应期第一周';
-    } else if (now > first + second && now < first + 2 * second) {
-      return '适应期第二周';
-    } else if (now > first + 2 * second && now < first + 3 * second) {
-      return '适应期第三周';
-    } else {
-      return '适应期第四周';
-    }
+export function getCurrentWeek(asNumber = false) {
+  //现在的Date对象实例
+  const nowDate = new Date();
+  //适应期第一周的Date对象实例
+  const firstWeek = new Date(2022, 9, 10);
+  //一周的毫秒数
+  const second = 604800000;
+  //第一周到1970的毫秒数
+  const first = firstWeek.getTime();
+  //现在到1970的毫秒数
+  const now = nowDate.getTime();
+
+  // 计算当前是第几周（从1开始）
+  const weeksSinceStart = Math.floor((now - first) / second) + 1;
+
+  // 安全处理：确保不会返回负数周
+  const currentWeekNumber = weeksSinceStart > 0 ? weeksSinceStart : 1;
+
+  // 限制最大周数，如果需要的话可以取消这个限制
+  const safeWeekNumber = Math.min(currentWeekNumber, 20); // 假设最多20周
+
+  // 根据参数决定返回数字还是字符串
+  if (asNumber) {
+    return safeWeekNumber;
+  }
+
+  // 原有的字符串逻辑，保留向后兼容性
+  if (now > first && now < first + second) {
+    return '适应期第一周';
+  } else if (now > first + second && now < first + 2 * second) {
+    return '适应期第二周';
+  } else if (now > first + 2 * second && now < first + 3 * second) {
+    return '适应期第三周';
+  } else {
+    return `适应期第${safeWeekNumber}周`;
+  }
 }
 /** 格林尼治时间转标准时间
  * @param {*} date 具体日期变量
  * @return {string} 转化后可以展示的时间字符串
  */
-export function greenwichTransform(date){
-        if(!date){
-            return '-'
-        }
-        const dayString = date;
-      // 先将日期分成年月日和后面的时分秒两部分
-      const day_time = dayString.split('T');
-      // 将年月日分隔开
-      // const year_month_day = day_time[0].split("-");
-      // 将秒后面的数隔开
-      const hour = day_time[1].split('.');
-      // console.log(hour);
-      return day_time[0] + '  ' + hour[0];
+export function greenwichTransform(date) {
+  if (!date) {
+    return '-'
+  }
+  const dayString = date;
+  // 先将日期分成年月日和后面的时分秒两部分
+  const day_time = dayString.split('T');
+  // 将年月日分隔开
+  // const year_month_day = day_time[0].split("-");
+  // 将秒后面的数隔开
+  const hour = day_time[1].split('.');
+  // console.log(hour);
+  return day_time[0] + '  ' + hour[0];
 }
 /** 中国标准时间转格林尼治时间
  * @param {*} date 日期字符串
  * @return {string} 转换后的格林尼治时间
  */
-export function ChineseTransformGreenwich(date){
-    return new Date(date.getTime() + 8 * 3600 * 1000 ).toISOString()
+export function ChineseTransformGreenwich(date) {
+  return new Date(date.getTime() + 8 * 3600 * 1000).toISOString()
 }

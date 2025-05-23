@@ -295,7 +295,7 @@ export const selectCondition = async (params: {
 export const getGroupInfo = async (params: {
     direction: string;
     group: string;
-    weeks?: number;
+    weeks: number;  // 确保weeks为必填参数
 }): Promise<AdminHomeworkResponse<any>> => {
     try {
         // 验证必要参数
@@ -315,8 +315,33 @@ export const getGroupInfo = async (params: {
             };
         }
 
-        // 发送请求
+        if (!params.weeks || params.weeks <= 0) {
+            return {
+                code: 400,
+                message: '周数必须大于0',
+                data: null
+            };
+        }
+
+        // 发送请求 - 确保使用POST请求且Content-Type为application/json
         const res = await axios.post<any, any>('/admin/getGroupInfo', params);
+
+        // 如果响应中没有studentList，尝试包装为适当的格式
+        if (res.code === 200 && res.data) {
+            // 检查是否是数组，但没有studentList属性
+            if (Array.isArray(res.data) && !('studentList' in res.data)) {
+                // 包装为适当的格式
+                return {
+                    code: res.code,
+                    message: res.msg || '获取小组信息成功',
+                    data: {
+                        studentList: res.data,
+                        direction: params.direction,
+                        group: params.group
+                    }
+                };
+            }
+        }
 
         return {
             code: res.code,
@@ -369,6 +394,47 @@ export const getCurrentWeeks = async (): Promise<AdminHomeworkResponse<number>> 
             code: 500,
             message: axiosError.message || '系统异常，请稍后重试',
             data: 1
+        };
+    }
+};
+
+/**
+ * 设置当前周数
+ * @param {number} weekNumber - 要设置的周数
+ * @returns Promise 设置结果
+ */
+export const setCurrentWeeks = async (weekNumber: number): Promise<AdminHomeworkResponse<number>> => {
+    try {
+        if (!weekNumber || weekNumber <= 0 || weekNumber > 20) {
+            return {
+                code: 400,
+                message: '周数必须为1-20之间的正整数',
+                data: 0
+            };
+        }
+
+        // 发送请求
+        const res = await axios.post<any, any>('/admin/setCurrentWeeks', { weeks: weekNumber });
+
+        return {
+            code: res.code,
+            message: res.msg || `成功设置当前周数为${weekNumber}`,
+            data: typeof res.data === 'number' ? res.data : weekNumber
+        };
+    } catch (error) {
+        console.error('设置当前周数失败:', error);
+        const axiosError = error as AxiosError<any>;
+        if (axiosError.response?.data?.message) {
+            return {
+                code: axiosError.response.status,
+                message: axiosError.response.data.message,
+                data: 0
+            };
+        }
+        return {
+            code: 500,
+            message: axiosError.message || '系统异常，请稍后重试',
+            data: 0
         };
     }
 };
