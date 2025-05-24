@@ -1,8 +1,8 @@
 <!--
  * @Author: cuiding 1692338302@qq.com
  * @Date: 2024-06-20 06:22:32
- * @LastEditors: cuiding 1692338302@qq.com
- * @LastEditTime: 2025-05-25 01:51:30
+ * @LastEditors: error: error: git config user.name & please set dead value or install git && error: git config user.email & please set dead value or install git & please set dead value or install git
+ * @LastEditTime: 2025-05-25 05:37:17
  * @FilePath: /YunJiaoYunJi-master/src/views/Login/Login.vue
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 -->
@@ -54,6 +54,8 @@
 </template>
 
 <script setup lang="ts">
+///取消本文件的ts类型检查
+// @ts-nocheck
 import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'

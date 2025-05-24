@@ -169,15 +169,19 @@
       <!-- 上传历史对话框 -->
       <el-dialog v-model="historyDialogVisible" title="提交历史" width="60%">
         <el-table :data="submissionHistory" style="width: 100%">
-          <el-table-column prop="fileName" label="文件名" />
+          <el-table-column label="文件名">
+            <template #default="scope">
+              {{ extractFileName(scope.row.fileUrl) }}
+            </template>
+          </el-table-column>
           <el-table-column prop="submitTime" label="提交时间" />
           <el-table-column prop="weeks" label="周数" />
           <el-table-column prop="comments" label="备注" />
-          <el-table-column label="状态">
+          <el-table-column label="操作" width="120">
             <template #default="scope">
-              <el-tag :type="getStatusTagType(scope.row.status)" effect="plain">
-                {{ getStatusText(scope.row.status) }}
-              </el-tag>
+              <el-button type="primary" size="small" @click="openFileUrl(scope.row.fileUrl)">
+                查看文件
+              </el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -306,7 +310,7 @@ import {
 } from '@element-plus/icons-vue'
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
-import { uploadHomework, getHistorySubmit, getRecentTask } from '@/service/api/homework'
+import { uploadHomework, getHistorySubmit, getRecentTask, checkHomeworkSubmitted } from '@/service/api/homework'
 import { getCurrentWeeks } from '@/service/api/adminHomework'
 import { getGroupInfo, getSelectCondition } from '@/service/api/adminHomework'
 import { getWeek } from "date-fns";
@@ -327,7 +331,6 @@ import UploadInfo from "@/components/UploadInfo/upload-info.vue";
 import { MarkrareData } from "@/models/MarkrareData";
 import { markrare } from "@/utils/markrare.js";
 import { IMarkedWord, MarkrareEvents } from "@/models/Markrare.interface";
-import { Watch } from "vue-class-component";
 import { useUserStore } from "@/stores/user";
 import { useDirectionStore } from "@/stores/direction";
 import type { UploadUserFile } from "element-plus";
@@ -355,6 +358,7 @@ const historyDialogVisible = ref(false)
 const submissionHistory = ref<any[]>([])  // 使用any类型避免类型错误
 const currentWeek = ref(1) // 可通过API获取当前周数
 const selectedFile = ref(null) // 添加选中文件的引用
+const currentHomeworkId = ref(''); // 添加当前作业ID的引用
 
 // 使用手动上传模式，不再使用 action
 const uploadUrl = '#' // 设置为 # 表示不使用自动上传
@@ -523,12 +527,26 @@ const handleUploadSuccess = (response, file, fileList) => {
     // 上传成功后延迟一小段时间再刷新小组进度（给后端一点处理时间）
     setTimeout(async () => {
       try {
-        // 刷新小组进度
-        await refreshGroupStats()
-        // 刷新历史记录
-        await loadSubmissionHistory()
-      } catch (refreshError) {
-        console.error('刷新数据失败:', refreshError)
+        // 立即更新本地小组状态，无需等待API刷新
+        if (groupStats.value && groupStats.value.finishedCount < groupStats.value.totalCount) {
+          // 因为刚刚提交成功，所以已完成人数+1
+          groupStats.value.finishedCount += 1;
+          // 更新小组进度标题
+          updateGroupProgressTitle();
+          console.log('本地更新小组进度:', groupStats.value);
+        }
+
+        // 尝试使用checkHomeworkSubmitted API确认提交状态
+        try {
+          const userId = getUserInfoFromStorage().userId;
+          const statusCheck = await checkHomeworkSubmitted(userId, currentHomeworkId.value);
+          console.log('提交后的状态检查结果:', statusCheck);
+        } catch (checkError) {
+          console.warn('检查提交状态失败，但不影响用户体验:', checkError);
+        }
+      } catch (finalError) {
+        console.error('最终刷新失败:', finalError);
+        ElMessage.info('小组数据可能未完全更新，请手动刷新');
       }
     }, 1500)
   } else {
@@ -561,6 +579,138 @@ const handleUploadError = (error, file, fileList) => {
 // 添加备注确认对话框的状态控制
 const commentConfirmVisible = ref(false)
 
+// 获取当前任务信息
+const fetchCurrentTask = async () => {
+  try {
+    const { userId, direction } = getUserInfoFromStorage()
+    if (!userId) {
+      console.warn('获取用户信息失败，无法获取当前任务');
+      ElMessage.warning('获取用户信息失败，请尝试重新登录');
+      return false;
+    }
+
+    // 使用当前周数作为参数
+    const weeks = currentWeek.value || 1;
+
+    // 更新小组进度标题，包含周数信息
+    updateGroupProgressTitle();
+
+    console.log('获取当前任务参数:', { userId, direction, weeks });
+
+    // 获取当前任务
+    const response = await getRecentTask(userId, direction, weeks);
+    console.log('获取当前任务完整响应:', response);
+
+    if (response.code === 200 && response.data) {
+      // 调试输出完整的响应数据结构
+      console.log('任务数据结构:', {
+        hasId: !!response.data.id,
+        idValue: response.data.id,
+        dataKeys: Object.keys(response.data)
+      });
+
+      // 尝试不同的属性名获取ID
+      let foundId = null;
+      if (response.data.id) {
+        foundId = response.data.id;
+      } else if (response.data.homeworkId) {
+        foundId = response.data.homeworkId;
+      } else if (response.data.homework_id) {
+        foundId = response.data.homework_id;
+      } else if (response.data._id) {
+        foundId = response.data._id;
+      }
+
+      if (foundId) {
+        // 保存作业ID
+        currentHomeworkId.value = foundId;
+        console.log('成功获取当前作业ID:', currentHomeworkId.value);
+
+        // 将作业ID保存到localStorage中作为备份
+        try {
+          localStorage.setItem('currentHomeworkId', currentHomeworkId.value);
+          localStorage.setItem('homeworkIdTimestamp', Date.now().toString());
+          return true;
+        } catch (e) {
+          console.error('保存作业ID到localStorage失败:', e);
+        }
+      } else {
+        console.warn('API返回的数据中没有找到作业ID:', response.data);
+        // 尝试从localStorage获取备份的作业ID
+        const gotBackupId = tryGetHomeworkIdFromBackup();
+        return gotBackupId;
+      }
+    } else {
+      console.warn('获取当前任务失败:', response?.message || '未知错误');
+
+      // 尝试从localStorage获取备份的作业ID
+      const gotBackupId = tryGetHomeworkIdFromBackup();
+      return gotBackupId;
+    }
+
+    // 这部分代码永远不会执行，因为前面的if-else已经覆盖了所有情况并返回
+    // 移除这部分代码以修复linter错误
+  } catch (error) {
+    console.error('获取当前任务失败:', error);
+
+    // 尝试从localStorage获取备份的作业ID
+    const gotBackupId = tryGetHomeworkIdFromBackup();
+    ElMessage.warning('获取当前任务信息失败，正在尝试备选方案');
+    return gotBackupId;
+  }
+}
+
+// 尝试从localStorage获取备份的作业ID
+const tryGetHomeworkIdFromBackup = () => {
+  try {
+    const backupId = localStorage.getItem('currentHomeworkId');
+    const timestamp = localStorage.getItem('homeworkIdTimestamp');
+
+    // 检查备份的ID是否存在且未过期（24小时内）
+    if (backupId && timestamp) {
+      const timestampNum = parseInt(timestamp);
+      const now = Date.now();
+      const isExpired = now - timestampNum > 24 * 60 * 60 * 1000; // 24小时
+
+      if (!isExpired) {
+        currentHomeworkId.value = backupId;
+        console.log('已从本地存储恢复作业ID:', backupId);
+        return true;
+      } else {
+        console.warn('本地存储的作业ID已过期');
+      }
+    }
+
+    // 如果没有有效的备份ID，尝试使用一个默认ID作为最后的备选方案
+    if (!currentHomeworkId.value) {
+      // 构建一个基于当前周数的ID，添加时间戳确保唯一性
+      const fallbackId = `week_${currentWeek.value}_default_${Date.now()}`;
+      currentHomeworkId.value = fallbackId;
+      console.warn('使用生成的备选作业ID:', fallbackId);
+
+      // 保存到localStorage作为临时备份
+      try {
+        localStorage.setItem('currentHomeworkId', currentHomeworkId.value);
+        localStorage.setItem('homeworkIdTimestamp', Date.now().toString());
+      } catch (e) {
+        console.error('保存生成的作业ID到localStorage失败:', e);
+      }
+
+      return true;
+    }
+
+    return false;
+  } catch (e) {
+    console.error('从localStorage获取作业ID失败:', e);
+
+    // 发生错误时，生成一个应急ID
+    const emergencyId = `emergency_${currentWeek.value}_${Date.now()}`;
+    currentHomeworkId.value = emergencyId;
+    console.warn('发生错误，使用应急作业ID:', emergencyId);
+    return true;
+  }
+}
+
 // 手动提交作业
 const submitHomework = async () => {
   if (!selectedFile.value) {
@@ -572,6 +722,24 @@ const submitHomework = async () => {
   if (!userId) {
     ElMessage.warning('获取用户信息失败，请重新登录')
     return
+  }
+
+  // 如果没有当前作业ID，尝试重新获取
+  if (!currentHomeworkId.value) {
+    ElMessage.info('正在尝试获取作业ID...');
+
+    // 尝试重新获取当前任务
+    await fetchCurrentTask();
+
+    // 如果仍然没有作业ID，尝试从备份获取
+    if (!currentHomeworkId.value) {
+      const gotBackupId = tryGetHomeworkIdFromBackup();
+
+      if (!gotBackupId) {
+        ElMessage.warning('无法获取当前作业ID，请刷新页面重试');
+        return;
+      }
+    }
   }
 
   // 提醒用户添加备注
@@ -612,6 +780,49 @@ const proceedWithSubmission = async () => {
     // 将 currentWeek 转换为字符串
     formData.append('weeks', currentWeek.value.toString())
 
+    // 添加homeworkId参数 - 增强检查逻辑
+    if (!currentHomeworkId.value) {
+      console.warn('上传前未检测到作业ID，尝试重新获取...');
+
+      // 尝试重新获取当前任务以获取作业ID
+      try {
+        await fetchCurrentTask();
+      } catch (error) {
+        console.error('尝试获取作业ID失败:', error);
+      }
+
+      // 如果仍然没有作业ID，尝试从备份获取
+      if (!currentHomeworkId.value) {
+        const gotBackupId = tryGetHomeworkIdFromBackup();
+
+        if (!gotBackupId) {
+          // 最后的备选方案：使用基于当前周的默认ID
+          currentHomeworkId.value = `week_${currentWeek.value}_default_${Date.now()}`;
+          console.warn('使用生成的备选作业ID:', currentHomeworkId.value);
+        }
+      }
+
+      // 经过多次尝试后仍无法获取，则中止上传
+      if (!currentHomeworkId.value) {
+        ElMessage.error('无法获取当前作业ID，请刷新页面重试');
+        uploadStatus.value = 'exception';
+        uploadStatusText.value = '上传失败：无法获取作业ID';
+        uploading.value = false;
+        return;
+      }
+    }
+
+    // 添加homeworkId到表单
+    formData.append('homeworkId', currentHomeworkId.value);
+
+    // 调试输出，确认表单中包含homeworkId
+    console.log('上传表单数据检查:', {
+      userId: getUserInfoFromStorage().userId,
+      weeks: currentWeek.value.toString(),
+      homeworkId: currentHomeworkId.value,
+      hasFile: !!selectedFile.value
+    });
+
     // 提交时间格式化: yyyy-MM-dd HH:mm:ss
     const now = new Date()
     const year = now.getFullYear()
@@ -634,7 +845,7 @@ const proceedWithSubmission = async () => {
 
     // 调用API上传作业
     const response = await uploadHomework(formData)
-    // console.log('上传作业响应:', response)
+    console.log('上传作业完整响应:', response)
 
     clearInterval(progressInterval)
 
@@ -646,15 +857,78 @@ const proceedWithSubmission = async () => {
       selectedFile.value = null // 清空选中的文件
       comments.value = '' // 清空备注
 
+      // 记录详细的成功信息
+      console.log('上传成功详情:', {
+        homeworkId: currentHomeworkId.value,
+        userId: getUserInfoFromStorage().userId,
+        timestamp: new Date().toISOString(),
+        responseData: response.data
+      });
+
       // 上传成功后延迟一小段时间再刷新小组进度（给后端一点处理时间）
       setTimeout(async () => {
         try {
-          // 刷新小组进度
-          await refreshGroupStats()
-          // 刷新历史记录
-          await loadSubmissionHistory()
-        } catch (refreshError) {
-          console.error('刷新数据失败:', refreshError)
+          // 立即更新本地小组状态，无需等待API刷新
+          if (groupStats.value && groupStats.value.finishedCount < groupStats.value.totalCount) {
+            // 因为刚刚提交成功，所以已完成人数+1
+            groupStats.value.finishedCount += 1;
+            // 更新小组进度标题
+            updateGroupProgressTitle();
+            console.log('本地更新小组进度:', groupStats.value);
+          }
+
+          // 尝试使用checkHomeworkSubmitted API确认提交状态
+          try {
+            const userId = getUserInfoFromStorage().userId;
+            console.log('检查提交状态参数:', { userId, homeworkId: currentHomeworkId.value });
+            const statusCheck = await checkHomeworkSubmitted(userId, currentHomeworkId.value);
+            console.log('提交后的状态检查结果:', statusCheck);
+
+            // 显示状态检查结果
+            if (statusCheck.code === 200) {
+              const isSubmitted = statusCheck.data === 1;
+              ElMessage.info(`状态检查结果: ${isSubmitted ? '已成功提交' : '尚未记录提交'}`);
+
+              // 如果后端未记录提交，给出更明确的提示
+              if (!isSubmitted) {
+                console.warn('后端未记录提交状态，可能存在问题:', statusCheck);
+                ElMessage.warning('作业已上传但系统尚未记录状态，请稍后刷新页面查看最新状态');
+              }
+            }
+          } catch (checkError) {
+            console.warn('检查提交状态失败，但不影响用户体验:', checkError);
+          }
+
+          // 添加重试机制，最多尝试3次
+          let retryCount = 0;
+          const maxRetries = 3;
+
+          const refreshWithRetry = async () => {
+            try {
+              // 刷新小组进度
+              await refreshGroupStats();
+              // 刷新历史记录
+              await loadSubmissionHistory();
+              console.log('刷新成功');
+            } catch (refreshError) {
+              console.error(`刷新数据失败 (尝试 ${retryCount + 1}/${maxRetries}):`, refreshError);
+
+              if (retryCount < maxRetries - 1) {
+                retryCount++;
+                console.log(`${retryCount}秒后重试...`);
+                // 指数退避重试
+                setTimeout(refreshWithRetry, retryCount * 1000);
+              } else {
+                ElMessage.info('小组数据可能未完全更新，请稍后手动刷新');
+              }
+            }
+          };
+
+          // 开始重试机制
+          await refreshWithRetry();
+        } catch (finalError) {
+          console.error('最终刷新失败:', finalError);
+          ElMessage.info('小组数据可能未完全更新，请手动刷新');
         }
       }, 1500)
     } else {
@@ -724,8 +998,17 @@ const loadSubmissionHistory = async () => {
     }
 
     const res = await getHistorySubmit(userId)
+    console.log('获取到的提交历史数据:', res);
+
     if (res.code === 200) {
-      submissionHistory.value = res.data || []
+      submissionHistory.value = res.data || [];
+
+      // 根据提交时间降序排序，最新的排在前面
+      submissionHistory.value.sort((a, b) => {
+        return new Date(b.submitTime).getTime() - new Date(a.submitTime).getTime();
+      });
+
+      console.log('处理后的提交历史数据:', submissionHistory.value);
     } else {
       ElMessage.error(res.message || '获取提交历史失败')
     }
@@ -816,24 +1099,10 @@ const fetchCurrentWeek = async () => {
   }
 }
 
-// 获取当前任务信息
-const fetchCurrentTask = async () => {
-  try {
-    const { userId, direction } = getUserInfoFromStorage()
-    if (!userId) return
-
-    // 使用当前周数作为参数
-    const weeks = currentWeek.value || 1;
-
-    // 更新小组进度标题，包含周数信息
-    updateGroupProgressTitle();
-
-    // 获取小组统计数据
-    await loadGroupStats();
-
-  } catch (error) {
-    console.error('获取当前任务失败:', error)
-  }
+// 更新小组进度标题
+const updateGroupProgressTitle = () => {
+  const weekText = `第${currentWeek.value}周`;
+  groupProgressTitle.value = `${weekText} - ${groupStats.value.direction} ${groupStats.value.group} 提交进度`
 }
 
 // 添加刷新周数和任务的功能
@@ -861,12 +1130,6 @@ const refreshWeekAndTask = async () => {
   } finally {
     refreshingWeek.value = false
   }
-}
-
-// 更新小组进度标题
-const updateGroupProgressTitle = () => {
-  const weekText = `第${currentWeek.value}周`;
-  groupProgressTitle.value = `${weekText} - ${groupStats.value.direction} ${groupStats.value.group} 提交进度`
 }
 
 // 获取小组进度信息
@@ -902,7 +1165,91 @@ const loadGroupStats = async () => {
     // 使用工具函数生成用户特定的localStorage键
     const groupStorageKey = generateGroupStorageKey(userInfo, currentWeek.value)
 
-    // 调用getGroupInfo API获取小组进度
+    try {
+      // 优先使用selectCondition获取小组成员，并利用checkHomeworkSubmitted判断完成情况
+      console.log('尝试使用selectCondition和checkHomeworkSubmitted获取小组进度');
+      const response = await getSelectCondition(params);
+
+      if (response.code === 200 && Array.isArray(response.data) && response.data.length > 0) {
+        console.log('成功获取小组成员列表:', response.data.length, '人');
+
+        // 确保有作业ID
+        if (!currentHomeworkId.value) {
+          tryGetHomeworkIdFromBackup();
+        }
+
+        if (currentHomeworkId.value) {
+          // 创建提交状态检查的Promise数组
+          const statusCheckPromises = response.data.map(async student => {
+            try {
+              // 使用checkHomeworkSubmitted API检查提交状态
+              const statusRes = await checkHomeworkSubmitted(student.userId, currentHomeworkId.value);
+              return statusRes.data === 1; // 1表示已提交，0表示未提交
+            } catch (error) {
+              console.error(`检查学生 ${student.name || student.user_name} 提交状态失败:`, error);
+              // 如果API调用失败，回退到使用is_apply判断
+              return student.is_apply === true;
+            }
+          });
+
+          // 等待所有提交状态检查完成
+          const submittedResults = await Promise.all(statusCheckPromises);
+
+          // 计算已完成人数
+          const finishedCount = submittedResults.filter(isSubmitted => isSubmitted).length;
+
+          // 更新小组统计数据
+          groupStats.value = {
+            ...groupStats.value,
+            finishedCount: finishedCount,
+            totalCount: response.data.length || 1
+          };
+
+          console.log('使用新方法计算的小组统计数据:', groupStats.value);
+        } else {
+          console.warn('无法获取作业ID，退化为使用原有字段判断');
+          // 退化为使用原有字段判断
+          const finishedCount = response.data.filter(student => student.is_apply === true).length;
+
+          groupStats.value = {
+            ...groupStats.value,
+            finishedCount: finishedCount,
+            totalCount: response.data.length || 1
+          };
+        }
+
+        // 缓存小组信息到localStorage
+        try {
+          const groupInfoToSave = {
+            code: 200,
+            message: "获取小组信息成功",
+            data: {
+              allCount: groupStats.value.totalCount,
+              finishCount: groupStats.value.finishedCount,
+              userId: userInfo.userId,
+              direction: userInfo.direction,
+              group: userInfo.group,
+              weeks: currentWeek.value,
+              timestamp: Date.now()
+            }
+          }
+          localStorage.setItem(groupStorageKey, JSON.stringify(groupInfoToSave))
+          console.log('已将小组信息保存到 localStorage:', groupStorageKey);
+        } catch (saveError) {
+          console.error('保存小组信息到 localStorage 失败:', saveError)
+        }
+
+        // 更新小组进度标题并返回
+        updateGroupProgressTitle();
+        return;
+      }
+    } catch (selectError) {
+      console.error('selectCondition方法获取小组进度失败:', selectError);
+      // 继续尝试备用方法
+    }
+
+    // 如果selectCondition方法失败，尝试使用getGroupInfo方法
+    console.log('尝试使用getGroupInfo备选方法');
     const response = await getGroupInfo(params)
     console.log('小组进度API响应:', response)
 
@@ -923,17 +1270,49 @@ const loadGroupStats = async () => {
         const studentList = Array.isArray(response.data.studentList) ? response.data.studentList : []
         console.log('小组学生列表:', studentList)
 
-        // 计算已完成人数
-        const finishedCount = studentList.filter(student => {
-          // 使用检查并修正函数获取正确的完成状态
-          return checkAndFixFinishCondition(student);
-        }).length;
+        // 确保有作业ID
+        if (!currentHomeworkId.value) {
+          tryGetHomeworkIdFromBackup();
+        }
 
-        // 更新小组统计数据
-        groupStats.value = {
-          ...groupStats.value,
-          finishedCount: finishedCount,
-          totalCount: studentList.length || 1 // 确保总人数至少为1，避免除以0错误
+        if (currentHomeworkId.value) {
+          // 创建提交状态检查的Promise数组
+          const statusCheckPromises = studentList.map(async student => {
+            try {
+              // 使用checkHomeworkSubmitted API检查提交状态
+              const statusRes = await checkHomeworkSubmitted(student.userId, currentHomeworkId.value);
+              return statusRes.data === 1; // 1表示已提交，0表示未提交
+            } catch (error) {
+              console.error(`检查学生 ${student.name || student.user_name} 提交状态失败:`, error);
+              // 如果API调用失败，回退到使用finishCondition判断
+              return student.finishCondition === '已完成' || student.is_apply === true;
+            }
+          });
+
+          // 等待所有提交状态检查完成
+          const submittedResults = await Promise.all(statusCheckPromises);
+
+          // 计算已完成人数
+          const finishedCount = submittedResults.filter(isSubmitted => isSubmitted).length;
+
+          // 更新小组统计数据
+          groupStats.value = {
+            ...groupStats.value,
+            finishedCount: finishedCount,
+            totalCount: studentList.length || 1 // 确保总人数至少为1，避免除以0错误
+          };
+        } else {
+          console.warn('无法获取作业ID，退化为使用finishCondition字段判断');
+          // 退化为使用finishCondition字段判断
+          const finishedCount = studentList.filter(student =>
+            student.finishCondition === '已完成' || student.is_apply === true
+          ).length;
+
+          groupStats.value = {
+            ...groupStats.value,
+            finishedCount: finishedCount,
+            totalCount: studentList.length || 1
+          };
         }
       }
       // 如果两种数据都没有，使用默认值
@@ -1065,13 +1444,38 @@ const refreshGroupStats = async () => {
     // 清除可能存在的缓存
     clearGroupStatsCache()
 
-    // 确保先获取最新周数
-    await fetchCurrentWeek()
-    // 直接调用loadGroupStats加载最新数据
-    await loadGroupStats()
+    // 添加超时控制
+    const timeout = 10000; // 10秒超时
+    let timeoutId = null;
 
-    // 刷新小组成员列表
-    await refreshGroupMembers()
+    // 创建一个可以被超时中断的Promise
+    const refreshPromise = Promise.race([
+      (async () => {
+        // 确保先获取最新周数
+        await fetchCurrentWeek()
+        // 直接调用loadGroupStats加载最新数据
+        await loadGroupStats()
+
+        // 刷新小组成员列表
+        await refreshGroupMembers()
+
+        // 返回成功结果
+        return { success: true };
+      })(),
+      new Promise((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(new Error('刷新小组进度超时，请检查网络连接'));
+        }, timeout);
+      })
+    ]);
+
+    // 等待刷新结果
+    await refreshPromise;
+
+    // 如果没有超时，清除超时计时器
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
 
     console.log('=== 刷新后的小组成员状态 ===')
     console.log('完成人数:', groupStats.value.finishedCount)
@@ -1085,9 +1489,43 @@ const refreshGroupStats = async () => {
 
     // 显示成功消息
     ElMessage.success(`小组进度更新成功：${groupStats.value.direction} ${groupStats.value.group} 完成率: ${groupProgressPercentage.value}%`)
+
+    return true;
   } catch (error) {
     console.error('刷新小组进度失败:', error)
-    ElMessage.error('刷新小组进度失败，请稍后重试')
+
+    // 检查是否为超时错误
+    if (error.message && error.message.includes('超时')) {
+      ElMessage.warning(error.message);
+    } else {
+      ElMessage.error('刷新小组进度失败，请稍后重试');
+    }
+
+    // 尝试从缓存恢复数据
+    try {
+      const userInfo = getUserInfoFromStorage();
+      const groupStorageKey = generateGroupStorageKey(userInfo, currentWeek.value);
+      const localGroupInfo = localStorage.getItem(groupStorageKey);
+
+      if (localGroupInfo) {
+        const groupInfoData = JSON.parse(localGroupInfo);
+        console.log('尝试从缓存恢复小组数据:', groupInfoData);
+
+        if (groupInfoData.code === 200 && groupInfoData.data) {
+          groupStats.value = {
+            ...groupStats.value,
+            finishedCount: groupInfoData.data.finishCount || 0,
+            totalCount: groupInfoData.data.allCount || 1
+          };
+          updateGroupProgressTitle();
+          console.log('从缓存恢复小组数据成功');
+        }
+      }
+    } catch (cacheError) {
+      console.error('从缓存恢复数据失败:', cacheError);
+    }
+
+    return false;
   } finally {
     refreshingGroup.value = false
   }
@@ -1130,38 +1568,34 @@ const handleCloseGroupDetailDialog = (done) => {
 }
 
 // 添加检查并修复可能不正确的finishCondition值的函数
-const checkAndFixFinishCondition = (student) => {
-  // 记录原始值，用于调试
-  const originalFinishCondition = student.finishCondition;
-
-  // 检查is_submitted_this_week字段（如果存在）
-  if (student.is_submitted_this_week !== undefined) {
-    const shouldBeFinished = student.is_submitted_this_week === 1;
-    const currentFinished = student.finishCondition === '已完成';
-
-    // 如果两者不一致，修正finishCondition
-    if (shouldBeFinished !== currentFinished) {
-      console.warn(`发现finishCondition与is_submitted_this_week不一致:`, {
-        user: student.name || student.user_name,
-        userId: student.userId,
-        is_submitted_this_week: student.is_submitted_this_week,
-        finishCondition: student.finishCondition
-      });
-
-      // 使用is_submitted_this_week的值来确定finishCondition
-      student.finishCondition = shouldBeFinished ? '已完成' : '未完成';
-
-      console.log(`已修正finishCondition:`, {
-        user: student.name || student.user_name,
-        userId: student.userId,
-        oldValue: originalFinishCondition,
-        newValue: student.finishCondition
-      });
-    }
+const checkAndFixFinishCondition = async (student) => {
+  // 如果没有当前作业ID，无法判断完成状态
+  if (!currentHomeworkId.value) {
+    console.warn('无法获取当前作业ID，无法准确判断完成状态');
+    // 退化为原来的判断逻辑
+    return student.finishCondition === '已完成' || student.is_apply === true;
   }
 
-  // 确保返回布尔值
-  return student.finishCondition === '已完成';
+  try {
+    // 使用checkHomeworkSubmitted API检查该学生是否提交了当前作业
+    const response = await checkHomeworkSubmitted(student.userId, currentHomeworkId.value);
+
+    // 记录API返回结果，用于调试
+    console.log(`检查学生 ${student.name || student.user_name || '未知'} (${student.userId}) 提交状态:`, {
+      homeworkId: currentHomeworkId.value,
+      apiResponse: response,
+      isSubmitted: response.data === 1
+    });
+
+    // 返回API判断结果：1表示已提交，0表示未提交
+    return response.data === 1;
+  } catch (error) {
+    console.error(`检查学生 ${student.name || student.user_name || '未知'} 提交状态失败:`, error);
+
+    // 发生错误时退化为原来的判断逻辑
+    console.warn('API调用失败，退化为使用原始字段判断');
+    return student.finishCondition === '已完成' || student.is_apply === true;
+  }
 };
 
 // 修改 refreshGroupMembers 函数，检查finishCondition的有效性
@@ -1188,7 +1622,13 @@ const refreshGroupMembers = async () => {
       return
     }
 
-    console.log('正在获取小组成员数据:', { direction, group, week: currentWeek.value })
+    // 确保有作业ID，否则无法检查提交状态
+    if (!currentHomeworkId.value) {
+      console.warn('尝试从备份恢复作业ID');
+      tryGetHomeworkIdFromBackup();
+    }
+
+    console.log('正在获取小组成员数据:', { direction, group, week: currentWeek.value, homeworkId: currentHomeworkId.value })
 
     // 构建参数
     const params = {
@@ -1205,30 +1645,19 @@ const refreshGroupMembers = async () => {
 
       if (response && response.code === 200) {
         if (response.data && Array.isArray(response.data) && response.data.length > 0) {
-          // 添加每个学生的完成状态日志
+          // 添加每个学生的基本信息日志
           console.log('小组成员原始数据详情:')
           response.data.forEach(student => {
             console.log(`学生: ${student.name || student.user_name}`, {
               userId: student.userId,
-              finishCondition: student.finishCondition,
               is_apply: student.is_apply,
-              // 调试时尝试其他可能的字段
-              submitted: student.submitted,
-              is_finished: student.is_finished,
-              status: student.status,
-              isSubmitted: student.isSubmitted,
-              originalFinish: student.finishCondition === '已完成'
             })
           })
 
-          // 转换数据格式
-          groupMembers.value = response.data.map(student => {
-            // 检查并修正finishCondition
-            const isFinishedStatus = checkAndFixFinishCondition(student);
-
-            // 记录每个学生的原始数据和判断结果
-            console.log(`学生 ${student.name || student.user_name} (${student.userId}) 完成状态:`,
-              { finishCondition: student.finishCondition, isFinished: isFinishedStatus });
+          // 创建提交状态检查的Promise数组
+          const statusCheckPromises = response.data.map(async student => {
+            // 使用新的checkHomeworkSubmitted API检查提交状态
+            const isFinishedStatus = await checkAndFixFinishCondition(student);
 
             return {
               userId: student.userId,
@@ -1238,7 +1667,20 @@ const refreshGroupMembers = async () => {
               isFinished: isFinishedStatus,
               submitTime: student.submitTime || '未提交'
             };
-          })
+          });
+
+          // 等待所有提交状态检查完成
+          groupMembers.value = await Promise.all(statusCheckPromises);
+
+          // 按照提交状态排序，已完成的排在前面
+          groupMembers.value.sort((a, b) => {
+            if (a.isFinished === b.isFinished) {
+              // 如果提交状态相同，则将自己放在最前面
+              return a.isSelf ? -1 : (b.isSelf ? 1 : 0);
+            }
+            // 已完成的排在前面
+            return a.isFinished ? -1 : 1;
+          });
 
           ElMessage.success(`成功获取${groupMembers.value.length}位小组成员数据`);
         } else {
@@ -1289,29 +1731,37 @@ const fallbackToGroupInfo = async (userInfo, direction, group) => {
     if (response && response.code === 200) {
       // 检查是否有学生列表
       if (response.data && Array.isArray(response.data.studentList) && response.data.studentList.length > 0) {
-        // 添加每个学生的完成状态日志
+        // 添加每个学生的基本信息日志
         console.log('备选方案小组成员原始数据:', response.data.studentList.map(student => ({
           name: student.name || student.user_name,
           userId: student.userId,
-          finishCondition: student.finishCondition,
-          is_apply: student.is_apply,
-          isFinishedByNewLogic: student.finishCondition === '已完成'
+          is_apply: student.is_apply
         })));
 
-        // 处理学生列表
-        groupMembers.value = response.data.studentList.map(student => {
-          // 检查并修正finishCondition
-          const isFinishedStatus = checkAndFixFinishCondition(student);
-
-          console.log(`备选方案学生 ${student.name || '未知'} (${student.userId}) 完成状态:`,
-            { finishCondition: student.finishCondition, isFinished: isFinishedStatus });
+        // 创建提交状态检查的Promise数组
+        const statusCheckPromises = response.data.studentList.map(async student => {
+          // 使用新的checkHomeworkSubmitted API检查提交状态
+          const isFinishedStatus = await checkAndFixFinishCondition(student);
 
           return {
             ...student,
             isSelf: student.userId === userInfo.userId,
             isFinished: isFinishedStatus,
-            submitTime: student.submitTime || (student.is_apply ? '已提交' : '未提交')
+            submitTime: student.submitTime || (isFinishedStatus ? '已提交' : '未提交')
           };
+        });
+
+        // 等待所有提交状态检查完成
+        groupMembers.value = await Promise.all(statusCheckPromises);
+
+        // 按照提交状态排序，已完成的排在前面
+        groupMembers.value.sort((a, b) => {
+          if (a.isFinished === b.isFinished) {
+            // 如果提交状态相同，则将自己放在最前面
+            return a.isSelf ? -1 : (b.isSelf ? 1 : 0);
+          }
+          // 已完成的排在前面
+          return a.isFinished ? -1 : 1;
         });
 
         ElMessage.info(`使用备选方案获取到${groupMembers.value.length}位小组成员数据`);
@@ -1419,6 +1869,21 @@ onMounted(async () => {
     console.log('步骤3: 获取当前任务');
     await fetchCurrentTask();
 
+    // 检查作业ID是否获取成功
+    if (!currentHomeworkId.value) {
+      console.warn('未能通过API获取作业ID，尝试从备份恢复');
+      // 尝试从备份获取
+      const gotBackupId = tryGetHomeworkIdFromBackup();
+      if (gotBackupId) {
+        console.log('成功从备份恢复作业ID:', currentHomeworkId.value);
+      } else {
+        console.warn('无法获取有效的作业ID，将在提交时尝试重新获取');
+        ElMessage.info('获取作业信息可能不完整，如遇问题请刷新页面');
+      }
+    } else {
+      console.log('成功获取当前作业ID:', currentHomeworkId.value);
+    }
+
     // 加载小组统计数据
     console.log('步骤4: 加载小组统计数据');
     await loadGroupStats();
@@ -1449,6 +1914,47 @@ onBeforeUnmount(() => {
 // 添加iconStyle属性
 const iconStyle = {
   marginRight: '4px'
+};
+
+// 从文件URL中提取文件名
+const extractFileName = (fileUrl) => {
+  if (!fileUrl) return '未知文件';
+
+  try {
+    // 从URL中提取文件名
+    const urlObj = new URL(fileUrl);
+    const pathSegments = urlObj.pathname.split('/');
+    let fileName = pathSegments[pathSegments.length - 1];
+
+    // 如果文件名包含UUID前缀，尝试移除它
+    if (fileName.includes('_')) {
+      const parts = fileName.split('_');
+      // 检查第一部分是否可能是UUID (长度为36或32且包含连字符)
+      if (parts[0].length >= 32 || (parts[0].length === 36 && parts[0].includes('-'))) {
+        // 移除UUID前缀部分
+        fileName = parts.slice(1).join('_');
+      }
+    }
+
+    // 对文件名进行URL解码
+    return decodeURIComponent(fileName);
+  } catch (e) {
+    console.error('提取文件名失败:', e);
+    // 简单地返回URL的最后一部分
+    const parts = fileUrl.split('/');
+    return parts[parts.length - 1] || '未知文件';
+  }
+};
+
+// 打开文件URL
+const openFileUrl = (fileUrl) => {
+  if (!fileUrl) {
+    ElMessage.warning('文件链接不可用');
+    return;
+  }
+
+  // 在新标签页中打开文件
+  window.open(fileUrl, '_blank');
 };
 </script>
 

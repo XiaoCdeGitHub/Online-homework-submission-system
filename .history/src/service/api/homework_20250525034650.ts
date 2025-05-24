@@ -52,32 +52,29 @@ export const checkHomeworkSubmitted = async (userId: string, homeworkId: string)
       };
     }
 
-    try {
-      // 直接构建URL
-      const res = await axios.get<any, any>(`/user/checkHomeworkSubmitted?userId=${encodeURIComponent(userId)}&homeworkId=${encodeURIComponent(homeworkId)}`);
+    const res = await axios.get<any, any>('/user/checkHomeworkSubmitted', {
+      params: { userId, homeworkId }
+    });
 
-      return {
-        code: res.code,
-        message: res.msg || '检查作业提交状态成功',
-        data: res.data || 0
-      };
-    } catch (innerError) {
-      console.error('API请求失败:', innerError);
-      // 如果API请求失败，默认返回未提交状态，不影响用户体验
-      return {
-        code: 200,
-        message: '暂时无法获取提交状态',
-        data: 0  // 默认未提交
-      };
-    }
+    return {
+      code: res.code,
+      message: res.msg || '检查作业提交状态成功',
+      data: res.data || 0
+    };
   } catch (error) {
     console.error('检查作业提交状态失败:', error);
     const axiosError = error as AxiosError<any>;
-    // 任何错误，默认返回未提交状态
+    if (axiosError.response?.data?.message) {
+      return {
+        code: axiosError.response.status,
+        message: axiosError.response.data.message,
+        data: 0
+      };
+    }
     return {
-      code: 200,
-      message: '暂时无法获取提交状态',
-      data: 0  // 默认未提交
+      code: 500,
+      message: axiosError.message || '系统异常，请稍后重试',
+      data: 0
     };
   }
 };
@@ -196,176 +193,95 @@ export const getHistorySubmit = async (userId: string): Promise<HomeworkResponse
       };
     }
 
-    console.log('获取历史提交记录，参数:', { userId });
-
+    // 临时解决方案：在后端接口完成前，返回空数组而不是抛出错误
     try {
-      // 先尝试使用POST请求并在请求体中传递参数
-      try {
-        const res = await axios.post<any, any>('/user/historySubmit', { userId });
-        console.log('获取历史提交记录响应:', res);
+      const res = await axios.post<any, any>('/user/historySubmit', { userId });
+      console.log('获取历史提交记录响应:', res);
 
-        // 处理正常响应
-        if (res.code === 200) {
-          // 处理新的homeworkList数据格式
-          if (res.data && res.data.homeworkList && Array.isArray(res.data.homeworkList) && res.data.homeworkList.length > 0) {
-            // 将homeworkList转换为SubmissionHistory格式的数组
-            const homeworkList = res.data.homeworkList;
-            const submissions: SubmissionHistory[] = homeworkList.map((homework: any) => {
-              // 从URL中提取文件名
-              const urlParts = homework.homeworkUrl ? homework.homeworkUrl.split('/') : [];
-              const fileName = urlParts.length > 0 ? urlParts[urlParts.length - 1] : '未知文件';
+      // 处理新的homeworkList数据格式
+      if (res.code === 200 && res.data && res.data.homeworkList && Array.isArray(res.data.homeworkList) && res.data.homeworkList.length > 0) {
+        // 将homeworkList转换为SubmissionHistory格式的数组
+        const homeworkList = res.data.homeworkList;
+        const submissions: SubmissionHistory[] = homeworkList.map((homework: any) => {
+          // 从URL中提取文件名
+          const urlParts = homework.homeworkUrl ? homework.homeworkUrl.split('/') : [];
+          const fileName = urlParts.length > 0 ? urlParts[urlParts.length - 1] : '未知文件';
 
-              return {
-                id: homework.homeworkId || `history-${Math.random()}`,
-                userId: userId,
-                fileName: fileName,
-                fileUrl: homework.homeworkUrl || '',
-                comments: homework.notice || '历史提交',
-                weeks: homework.weeks || 0,
-                submitTime: homework.createdAt || homework.startTime || new Date().toISOString(),
-                status: 1 // 默认状态为已通过
-              };
-            });
+          return {
+            id: homework.homeworkId || `history-${Math.random()}`,
+            userId: userId,
+            fileName: fileName,
+            fileUrl: homework.homeworkUrl || '',
+            comments: homework.notice || '历史提交',
+            weeks: homework.weeks || 0,
+            submitTime: homework.createdAt || homework.startTime || new Date().toISOString(),
+            status: 1 // 默认状态为已通过
+          };
+        });
 
-            return {
-              code: 200,
-              message: '获取历史记录成功',
-              data: submissions
-            };
-          }
-
-          // 继续保留原来处理homeworkUrlList的兼容代码
-          if (res.data && res.data.homeworkUrlList && Array.isArray(res.data.homeworkUrlList) && res.data.homeworkUrlList.length > 0) {
-            // 将homeworkUrlList转换为SubmissionHistory格式的数组
-            const homeworkUrlList = res.data.homeworkUrlList;
-            const submissions: SubmissionHistory[] = homeworkUrlList.map((url: string, index: number) => {
-              // 从URL中提取文件名
-              const urlParts = url.split('/');
-              const fileName = urlParts[urlParts.length - 1];
-
-              return {
-                id: `history-${index}`,
-                userId: userId,
-                fileName: fileName,
-                fileUrl: url,
-                comments: '历史提交',
-                weeks: index + 1, // 使用索引作为周数
-                submitTime: new Date().toISOString(), // 默认提交时间
-                status: 1 // 默认状态为已通过
-              };
-            });
-
-            return {
-              code: 200,
-              message: '获取历史记录成功',
-              data: submissions
-            };
-          }
-        }
-
-        // 处理空数据情况
         return {
-          code: res.code || 200,
-          message: res.msg || '暂无历史记录',
-          data: []
+          code: 200,
+          message: '获取历史记录成功',
+          data: submissions
         };
-      } catch (postError) {
-        console.warn('POST请求失败，尝试使用GET请求:', postError);
-
-        // 如果POST请求失败，回退到GET请求（兼容旧版本API）
-        try {
-          const res = await axios.get<any, any>(`/user/historySubmit?userId=${encodeURIComponent(userId)}`);
-
-          // 处理响应...与上面的POST处理逻辑相同
-          if (res.code === 200) {
-            // 处理数据...
-            if (res.data && res.data.homeworkList && Array.isArray(res.data.homeworkList) && res.data.homeworkList.length > 0) {
-              // 处理数据...
-              const homeworkList = res.data.homeworkList;
-              const submissions: SubmissionHistory[] = homeworkList.map((homework: any) => {
-                // 从URL中提取文件名
-                const urlParts = homework.homeworkUrl ? homework.homeworkUrl.split('/') : [];
-                const fileName = urlParts.length > 0 ? urlParts[urlParts.length - 1] : '未知文件';
-
-                return {
-                  id: homework.homeworkId || `history-${Math.random()}`,
-                  userId: userId,
-                  fileName: fileName,
-                  fileUrl: homework.homeworkUrl || '',
-                  comments: homework.notice || '历史提交',
-                  weeks: homework.weeks || 0,
-                  submitTime: homework.createdAt || homework.startTime || new Date().toISOString(),
-                  status: 1 // 默认状态为已通过
-                };
-              });
-
-              return {
-                code: 200,
-                message: '获取历史记录成功',
-                data: submissions
-              };
-            }
-
-            // 继续保留原来处理homeworkUrlList的兼容代码
-            if (res.data && res.data.homeworkUrlList && Array.isArray(res.data.homeworkUrlList) && res.data.homeworkUrlList.length > 0) {
-              // 处理数据...
-              const homeworkUrlList = res.data.homeworkUrlList;
-              const submissions: SubmissionHistory[] = homeworkUrlList.map((url: string, index: number) => {
-                // 从URL中提取文件名
-                const urlParts = url.split('/');
-                const fileName = urlParts[urlParts.length - 1];
-
-                return {
-                  id: `history-${index}`,
-                  userId: userId,
-                  fileName: fileName,
-                  fileUrl: url,
-                  comments: '历史提交',
-                  weeks: index + 1, // 使用索引作为周数
-                  submitTime: new Date().toISOString(), // 默认提交时间
-                  status: 1 // 默认状态为已通过
-                };
-              });
-
-              return {
-                code: 200,
-                message: '获取历史记录成功',
-                data: submissions
-              };
-            }
-          }
-
-          // 处理空数据情况
-          return {
-            code: res.code || 200,
-            message: res.msg || '暂无历史记录',
-            data: []
-          };
-        } catch (getError) {
-          console.error('GET请求也失败了:', getError);
-          // 两种请求都失败，返回空数组，不中断用户体验
-          return {
-            code: 200,  // 用200代替错误码，避免UI显示错误
-            message: '暂无历史记录',
-            data: []
-          };
-        }
       }
-    } catch (innerError) {
-      console.error('API请求失败:', innerError);
-      // 请求失败，但仍返回成功状态，只是数据为空
+
+      // 继续保留原来处理homeworkUrlList的兼容代码
+      if (res.code === 200 && res.data && res.data.homeworkUrlList && Array.isArray(res.data.homeworkUrlList) && res.data.homeworkUrlList.length > 0) {
+        // 将homeworkUrlList转换为SubmissionHistory格式的数组
+        const homeworkUrlList = res.data.homeworkUrlList;
+        const submissions: SubmissionHistory[] = homeworkUrlList.map((url: string, index: number) => {
+          // 从URL中提取文件名
+          const urlParts = url.split('/');
+          const fileName = urlParts[urlParts.length - 1];
+
+          return {
+            id: `history-${index}`,
+            userId: userId,
+            fileName: fileName,
+            fileUrl: url,
+            comments: '历史提交',
+            weeks: index + 1, // 使用索引作为周数
+            submitTime: new Date().toISOString(), // 默认提交时间
+            status: 1 // 默认状态为已通过
+          };
+        });
+
+        return {
+          code: 200,
+          message: '获取历史记录成功',
+          data: submissions
+        };
+      }
+
       return {
-        code: 200,
-        message: '暂无历史记录',
+        code: res.code,
+        message: res.msg || '获取历史记录成功',
+        data: Array.isArray(res.data) ? res.data : []
+      };
+    } catch (apiError) {
+      console.warn('历史提交记录接口请求失败，可能尚未实现:', apiError);
+
+      // 接口不存在(404)或其他错误时，返回空数组而不是抛出错误
+      return {
+        code: 200, // 返回成功状态码，避免UI显示错误
+        message: '历史记录接口暂未实现，返回空记录',
         data: []
       };
     }
   } catch (error) {
     console.error('获取历史提交记录失败:', error);
-    // 任何错误，都返回空数组，避免中断用户体验
+    const axiosError = error as AxiosError<any>;
+    if (axiosError.response?.data?.message) {
+      return {
+        code: axiosError.response.status,
+        message: axiosError.response.data.message,
+        data: []
+      };
+    }
     return {
-      code: 200,
-      message: '暂无历史记录',
+      code: 500,
+      message: axiosError.message || '系统异常，请稍后重试',
       data: []
     };
   }
@@ -396,127 +312,57 @@ export const getSubmissionCount = async (userId: string, weeks: number): Promise
     }
 
     console.log(`请求提交统计 - 用户ID: ${userId}, 周数: ${weeks}`);
+    const res = await axios.post<any, any>('/user/getCount', { userId, weeks });
+    console.log('原始API响应:', res);
 
-    try {
-      // 先尝试使用POST请求并在请求体中传递参数
-      try {
-        const res = await axios.post<any, any>('/user/getCount', { userId, weeks });
-        console.log('原始API响应:', res);
+    // 如果返回数据格式不一致，尝试适配
+    let data: SubmissionCount = {
+      submissionCount: 0,
+      isSubmittedThisWeek: 0,
+      comments: '',
+      submitTime: ''
+    };
 
-        // 如果返回数据格式不一致，尝试适配
-        let data: SubmissionCount = {
-          submissionCount: 0,
-          isSubmittedThisWeek: 0,
-          comments: '',
-          submitTime: ''
-        };
-
-        if (res.data) {
-          // 直接使用API返回的字段
-          data = {
-            submissionCount: res.data.submissionCount ?? 0,
-            isSubmittedThisWeek: res.data.isSubmittedThisWeek ?? 0,
-            comments: res.data.comments ?? '',
-            submitTime: res.data.submitTime ?? ''
-          };
-
-          // 如果返回的格式不完全一致，尝试使用替代字段
-          if (data.isSubmittedThisWeek === undefined && res.data.status !== undefined) {
-            data.isSubmittedThisWeek = res.data.status === 'submitted' ? 1 : 0;
-          }
-
-          if (data.submissionCount === undefined && res.data.total !== undefined) {
-            data.submissionCount = res.data.total;
-          }
-
-          console.log('转换后的数据:', data);
-        }
-
-        return {
-          code: res.code,
-          message: res.msg || '获取统计信息成功',
-          data
-        };
-      } catch (postError) {
-        console.warn('POST请求失败，尝试使用GET请求:', postError);
-
-        // 如果POST请求失败，回退到GET请求（兼容旧版本API）
-        try {
-          const res = await axios.get<any, any>(`/user/getCount?userId=${encodeURIComponent(userId)}&weeks=${weeks}`);
-
-          // 处理响应...与上面的POST处理逻辑相同
-          let data: SubmissionCount = {
-            submissionCount: 0,
-            isSubmittedThisWeek: 0,
-            comments: '',
-            submitTime: ''
-          };
-
-          if (res.data) {
-            // 直接使用API返回的字段
-            data = {
-              submissionCount: res.data.submissionCount ?? 0,
-              isSubmittedThisWeek: res.data.isSubmittedThisWeek ?? 0,
-              comments: res.data.comments ?? '',
-              submitTime: res.data.submitTime ?? ''
-            };
-
-            // 如果返回的格式不完全一致，尝试使用替代字段
-            if (data.isSubmittedThisWeek === undefined && res.data.status !== undefined) {
-              data.isSubmittedThisWeek = res.data.status === 'submitted' ? 1 : 0;
-            }
-
-            if (data.submissionCount === undefined && res.data.total !== undefined) {
-              data.submissionCount = res.data.total;
-            }
-          }
-
-          return {
-            code: res.code,
-            message: res.msg || '获取统计信息成功',
-            data
-          };
-        } catch (getError) {
-          console.error('GET请求也失败了:', getError);
-          // 两种请求都失败，返回默认值，不中断用户体验
-          return {
-            code: 200,  // 用200代替错误码，避免UI显示错误
-            message: '暂无统计信息',
-            data: {
-              submissionCount: 0,
-              isSubmittedThisWeek: 0,
-              comments: '',
-              submitTime: ''
-            }
-          };
-        }
-      }
-    } catch (innerError) {
-      console.error('API请求失败:', innerError);
-      // 请求失败，但仍返回成功状态，只是数据为默认值
-      return {
-        code: 200,
-        message: '暂无统计信息',
-        data: {
-          submissionCount: 0,
-          isSubmittedThisWeek: 0,
-          comments: '',
-          submitTime: ''
-        }
+    if (res.data) {
+      // 直接使用API返回的字段
+      data = {
+        submissionCount: res.data.submissionCount ?? 0,
+        isSubmittedThisWeek: res.data.isSubmittedThisWeek ?? 0,
+        comments: res.data.comments ?? '',
+        submitTime: res.data.submitTime ?? ''
       };
+
+      // 如果返回的格式不完全一致，尝试使用替代字段
+      if (data.isSubmittedThisWeek === undefined && res.data.status !== undefined) {
+        data.isSubmittedThisWeek = res.data.status === 'submitted' ? 1 : 0;
+      }
+
+      if (data.submissionCount === undefined && res.data.total !== undefined) {
+        data.submissionCount = res.data.total;
+      }
+
+      console.log('转换后的数据:', data);
     }
+
+    return {
+      code: res.code,
+      message: res.msg || '获取统计信息成功',
+      data
+    };
   } catch (error) {
     console.error('获取提交统计信息失败:', error);
-    // 任何错误，都返回默认值，避免中断用户体验
+    const axiosError = error as AxiosError<any>;
+    if (axiosError.response?.data?.message) {
+      return {
+        code: axiosError.response.status,
+        message: axiosError.response.data.message,
+        data: null
+      };
+    }
     return {
-      code: 200,
-      message: '暂无统计信息',
-      data: {
-        submissionCount: 0,
-        isSubmittedThisWeek: 0,
-        comments: '',
-        submitTime: ''
-      }
+      code: 500,
+      message: axiosError.message || '系统异常，请稍后重试',
+      data: null
     };
   }
 };

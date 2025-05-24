@@ -48,11 +48,6 @@
             <Refresh />
           </el-icon> 刷新列表
         </el-button>
-        <el-button type="warning" size="small" plain @click="forceRefreshHomeworks" :loading="loading">
-          <el-icon>
-            <Refresh />
-          </el-icon> 强制刷新
-        </el-button>
       </div>
     </div>
 
@@ -636,49 +631,6 @@ const confirmLogout = () => {
   } catch (error) {
     console.error('登出失败:', error);
     ElMessage.error('退出登录失败，请重试');
-  }
-};
-
-// 强制刷新作业列表，清除缓存后重新获取
-const forceRefreshHomeworks = async () => {
-  try {
-    // 显示刷新中提示
-    ElMessage.info('正在刷新作业列表...');
-
-    // 清除可能影响状态判断的本地缓存
-    const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}');
-    const userId = userInfo.userId || userInfo.number;
-
-    // 清除本地存储中可能与作业相关的缓存
-    const keysToRemove = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && (
-        key.includes('homework') ||
-        key.includes('submission') ||
-        key.includes('task') ||
-        key.includes('workStatus')
-      )) {
-        keysToRemove.push(key);
-      }
-    }
-
-    // 删除收集的键
-    keysToRemove.forEach(key => {
-      localStorage.removeItem(key);
-      console.log('清除本地缓存:', key);
-    });
-
-    // 重新获取当前周数
-    await getCurrentWeek();
-
-    // 重新获取作业列表
-    await fetchHomeworks();
-
-    ElMessage.success('作业列表刷新成功');
-  } catch (error) {
-    console.error('强制刷新失败:', error);
-    ElMessage.error('刷新失败，请重试');
   }
 };
 </script>

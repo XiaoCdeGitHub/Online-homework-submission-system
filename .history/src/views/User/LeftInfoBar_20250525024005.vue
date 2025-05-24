@@ -48,11 +48,6 @@
             <Refresh />
           </el-icon> 刷新列表
         </el-button>
-        <el-button type="warning" size="small" plain @click="forceRefreshHomeworks" :loading="loading">
-          <el-icon>
-            <Refresh />
-          </el-icon> 强制刷新
-        </el-button>
       </div>
     </div>
 
@@ -121,10 +116,10 @@ import { ChineseTransformGreenwich } from '../../utils/date';
 import { weekToBeWorkName } from '../../utils/work';
 import { directionOptionList, weekStageList } from '../../data/admin';
 import { publicJobs, updateStatus, deleteUser } from '@/service/api/admin'
-import { ref, onMounted, computed, onUnmounted } from 'vue';
+import { ref, onMounted, computed, watch, onUnmounted } from 'vue';
 import { ElMessage } from 'element-plus';
 import { Refresh, SwitchButton } from '@element-plus/icons-vue';
-import { downloadHomeworkFile, getRecentTask, getAllTasks, getSubmissionCount, checkHomeworkSubmitted } from '@/service/api/homework';
+import { downloadHomeworkFile, getRecentTask, getAllTasks, getSubmissionCount } from '@/service/api/homework';
 import { getCurrentWeeks } from '@/service/api/adminHomework';
 import { handleUserLogout } from '@/utils/localStorage';
 import { useRouter } from 'vue-router';
@@ -201,7 +196,7 @@ const fetchAllHomeworks = async () => {
           endTime: homework.endTime || '',
           weeks: homework.weeks || 0,
           direction: homework.direction || direction,
-          isSubmitted: false, // 默认设为未提交，后面会更新
+          isSubmitted: true, // 历史作业默认为已提交
           isActive: false
         };
       });
@@ -209,22 +204,77 @@ const fetchAllHomeworks = async () => {
       // 按周数排序，最新的排在前面
       homeworks.sort((a, b) => b.weeks - a.weeks);
 
-      // 逐个查询每个作业的提交状态
+      allHomeworkList.value = homeworks;
+      console.log('使用homeworkList创建的作业列表:', allHomeworkList.value);
+      return;
+    }
+
+    // 保留原来处理homeworkUrlList的兼容代码
+    if (res.code === 200 && res.data && res.data.homeworkUrlList && Array.isArray(res.data.homeworkUrlList) && res.data.homeworkUrlList.length > 0) {
+      // 从homeworkUrlList创建作业列表
+      const homeworkUrlList = res.data.homeworkUrlList;
+      const homeworks = homeworkUrlList.map((url, index) => {
+        // 从URL中提取文件名
+        const urlParts = url.split('/');
+        const fileName = urlParts[urlParts.length - 1];
+
+        return {
+          id: `homework-url-${index}`,
+          title: `历史作业 ${index + 1}`,
+          notice: '历史作业',
+          fileName: fileName,
+          fileUrl: url,
+          startTime: '', // 历史作业没有开始时间
+          endTime: '', // 历史作业没有截止时间
+          weeks: index + 1, // 使用索引作为周数
+          direction: direction,
+          isSubmitted: true, // 历史作业默认为已提交
+          isActive: false
+        };
+      });
+
+      allHomeworkList.value = homeworks;
+      console.log('使用homeworkUrlList创建的作业列表:', allHomeworkList.value);
+      return;
+    }
+
+    if (res.code === 200 && res.data && res.data.length > 0) {
+      // 处理作业数据
+      const homeworks = res.data.map(homework => {
+        const weekNumber = homework.weeks || 0;
+
+        return {
+          id: homework.id || `homework-${new Date().getTime()}-${Math.random()}`,
+          title: homework.title || `第${homework.weeks}周作业`,
+          notice: homework.notice || '暂无说明',
+          fileName: homework.fileName || '',
+          fileUrl: homework.fileUrl || '',
+          startTime: homework.startTime || '',
+          endTime: homework.endTime || '',
+          weeks: weekNumber,
+          direction: homework.direction || direction,
+          isSubmitted: false, // 默认设为未提交，稍后更新
+          isActive: homework.isActive
+        };
+      });
+
+      // 按周数排序，最新的排在前面
+      homeworks.sort((a, b) => b.weeks - a.weeks);
+
+      // 逐个查询每周作业的提交状态
       for (const homework of homeworks) {
         try {
-          // 优先使用作业ID检查提交状态
-          if (homework.id && homework.id.length > 10) {
-            const statusRes = await checkHomeworkSubmitted(userId, homework.id);
-            homework.isSubmitted = statusRes.data === 1;
-          } else {
-            // 兼容旧代码，使用周数检查
-            const statusRes = await getSubmissionCount(userId, homework.weeks);
-            if (statusRes.code === 200 && statusRes.data) {
-              homework.isSubmitted = statusRes.data.isSubmittedThisWeek === 1;
+          const statusRes = await getSubmissionCount(userId, homework.weeks);
+          if (statusRes.code === 200 && statusRes.data) {
+            homework.isSubmitted = statusRes.data.isSubmittedThisWeek === 1;
+
+            // 同时从isActive判断是否已提交
+            if (homework.isActive === false) {
+              homework.isSubmitted = true;
             }
           }
         } catch (error) {
-          console.error(`获取作业ID=${homework.id}周数=${homework.weeks}的提交状态失败:`, error);
+          console.error(`获取第${homework.weeks}周作业提交状态失败:`, error);
         }
       }
 
@@ -232,82 +282,8 @@ const fetchAllHomeworks = async () => {
       allHomeworkList.value = homeworks;
       console.log('所有作业数据(含提交状态):', allHomeworkList.value);
     } else {
-      // 保留原来处理homeworkUrlList的兼容代码
-      if (res.code === 200 && res.data && res.data.homeworkUrlList && Array.isArray(res.data.homeworkUrlList) && res.data.homeworkUrlList.length > 0) {
-        // 从homeworkUrlList创建作业列表
-        const homeworkUrlList = res.data.homeworkUrlList;
-        const homeworks = homeworkUrlList.map((url, index) => {
-          // 从URL中提取文件名
-          const urlParts = url.split('/');
-          const fileName = urlParts[urlParts.length - 1];
-
-          return {
-            id: `homework-url-${index}`,
-            title: `历史作业 ${index + 1}`,
-            notice: '历史作业',
-            fileName: fileName,
-            fileUrl: url,
-            startTime: '', // 历史作业没有开始时间
-            endTime: '', // 历史作业没有截止时间
-            weeks: index + 1, // 使用索引作为周数
-            direction: direction,
-            isSubmitted: true, // 历史作业默认为已提交
-            isActive: false
-          };
-        });
-
-        allHomeworkList.value = homeworks;
-        console.log('使用homeworkUrlList创建的作业列表:', allHomeworkList.value);
-        return;
-      }
-
-      if (res.code === 200 && res.data && res.data.length > 0) {
-        // 处理作业数据
-        const homeworks = res.data.map(homework => {
-          const weekNumber = homework.weeks || 0;
-
-          return {
-            id: homework.id || `homework-${new Date().getTime()}-${Math.random()}`,
-            title: homework.title || `第${homework.weeks}周作业`,
-            notice: homework.notice || '暂无说明',
-            fileName: homework.fileName || '',
-            fileUrl: homework.fileUrl || '',
-            startTime: homework.startTime || '',
-            endTime: homework.endTime || '',
-            weeks: weekNumber,
-            direction: homework.direction || direction,
-            isSubmitted: false, // 默认设为未提交，稍后更新
-            isActive: homework.isActive
-          };
-        });
-
-        // 按周数排序，最新的排在前面
-        homeworks.sort((a, b) => b.weeks - a.weeks);
-
-        // 逐个查询每周作业的提交状态
-        for (const homework of homeworks) {
-          try {
-            const statusRes = await getSubmissionCount(userId, homework.weeks);
-            if (statusRes.code === 200 && statusRes.data) {
-              homework.isSubmitted = statusRes.data.isSubmittedThisWeek === 1;
-
-              // 同时从isActive判断是否已提交
-              if (homework.isActive === false) {
-                homework.isSubmitted = true;
-              }
-            }
-          } catch (error) {
-            console.error(`获取第${homework.weeks}周作业提交状态失败:`, error);
-          }
-        }
-
-        // 更新数据
-        allHomeworkList.value = homeworks;
-        console.log('所有作业数据(含提交状态):', allHomeworkList.value);
-      } else {
-        ElMessage.info('没有找到历史作业');
-        allHomeworkList.value = [];
-      }
+      ElMessage.info('没有找到历史作业');
+      allHomeworkList.value = [];
     }
   } catch (error) {
     console.error('获取所有作业失败:', error);
@@ -371,9 +347,11 @@ const checkSubmissionStatus = async (userId, currentWeek) => {
         comments
       });
 
+      // 确保返回最新的提交状态
       return hasSubmitted;
     }
 
+    // 无法确定状态时返回false，表示未提交
     return false;
   } catch (error) {
     console.error('检查提交状态失败:', error);
@@ -432,6 +410,9 @@ const fetchHomeworks = async () => {
     // 获取当前周数 - 修改为await异步调用
     const currentWeekNum = await getCurrentWeek();
 
+    // 先检查用户是否已提交当前周作业
+    const hasSubmitted = await checkSubmissionStatus(userId, currentWeekNum);
+
     // 使用新的接口获取本周作业
     const res = await getRecentTask(userId, direction, currentWeekNum);
     console.log('获取本周作业响应:', res);
@@ -444,9 +425,25 @@ const fetchHomeworks = async () => {
       // 记录原始数据用于调试
       console.log('原始作业数据:', data);
 
-      // 从homeworkUrl中提取文件名和ID
+      // 检查可能的提交状态字段
+      const submittedStatus =
+        data.submitted === true ||
+        data.isSubmitted === true ||
+        data.status === 'submitted' ||
+        hasSubmitted; // 使用从提交历史中获取的状态
+
+      console.log('提交状态检查:', {
+        isActive: data.isActive,
+        submitted: data.submitted,
+        isSubmitted: data.isSubmitted,
+        status: data.status,
+        hasSubmitted: hasSubmitted,
+        finalStatus: submittedStatus
+      });
+
+      // 从homeworkUrl中提取文件名
       let fileName = '';
-      let homeworkId = '';
+      let id = '';
 
       if (data.homeworkUrl) {
         // 提取URL最后的文件名部分
@@ -455,34 +452,15 @@ const fetchHomeworks = async () => {
 
         // 如果有文件ID (UUID格式)，提取作为ID
         const idMatch = fileName.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/);
-        homeworkId = idMatch ? idMatch[1] : `homework-${new Date().getTime()}`;
+        id = idMatch ? idMatch[1] : `homework-${new Date().getTime()}`;
       } else {
         // 生成一个临时ID
-        homeworkId = `homework-${new Date().getTime()}`;
-      }
-
-      // 使用新的API检查特定作业是否已提交
-      let isSubmitted = false;
-      try {
-        // 如果有作业ID，使用新接口检查提交状态
-        if (data.homeworkId) {
-          const submittedRes = await checkHomeworkSubmitted(userId, data.homeworkId);
-          isSubmitted = submittedRes.data === 1;
-          console.log(`作业ID: ${data.homeworkId} 提交状态:`, isSubmitted);
-        } else {
-          // 兼容旧代码，使用周数检查
-          const hasSubmitted = await checkSubmissionStatus(userId, currentWeekNum);
-          isSubmitted = hasSubmitted;
-        }
-      } catch (error) {
-        console.error('检查作业提交状态失败:', error);
-        // 出错时默认为未提交
-        isSubmitted = false;
+        id = `homework-${new Date().getTime()}`;
       }
 
       // 构建完整的作业对象
       homeworkList.value = [{
-        id: data.homeworkId || homeworkId, // 优先使用API返回的homeworkId
+        id: id,
         title: `第${currentWeekNum}周作业`, // 使用当前周数作为标题
         notice: data.notice || '暂无说明',
         fileName: fileName,
@@ -491,7 +469,7 @@ const fetchHomeworks = async () => {
         endTime: data.endTime,
         weeks: currentWeekNum, // 使用当前周数
         direction: direction,
-        isSubmitted: isSubmitted // 使用新接口检查的提交状态
+        isSubmitted: submittedStatus // 从submittedStatus判断是否已提交
       }];
 
       console.log('处理后的作业数据:', homeworkList.value);
@@ -559,23 +537,7 @@ const downloadHomework = async (homework) => {
 // 组件挂载时获取作业列表
 onMounted(() => {
   fetchHomeworks();
-  // 定期刷新作业列表状态，避免状态不一致问题
-  setRefreshTimer();
 });
-
-// 设置定期刷新定时器
-const setRefreshTimer = () => {
-  // 每5分钟自动刷新一次作业列表
-  const timer = setInterval(() => {
-    console.log('自动刷新作业列表...');
-    fetchHomeworks();
-  }, 5 * 60 * 1000); // 5分钟
-
-  // 在组件卸载时清除定时器
-  onUnmounted(() => {
-    clearInterval(timer);
-  });
-};
 
 // 显示历史作业对话框
 const showHistoryHomeworksDialog = () => {
@@ -639,48 +601,30 @@ const confirmLogout = () => {
   }
 };
 
-// 强制刷新作业列表，清除缓存后重新获取
-const forceRefreshHomeworks = async () => {
-  try {
-    // 显示刷新中提示
-    ElMessage.info('正在刷新作业列表...');
-
-    // 清除可能影响状态判断的本地缓存
-    const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}');
-    const userId = userInfo.userId || userInfo.number;
-
-    // 清除本地存储中可能与作业相关的缓存
-    const keysToRemove = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && (
-        key.includes('homework') ||
-        key.includes('submission') ||
-        key.includes('task') ||
-        key.includes('workStatus')
-      )) {
-        keysToRemove.push(key);
-      }
-    }
-
-    // 删除收集的键
-    keysToRemove.forEach(key => {
-      localStorage.removeItem(key);
-      console.log('清除本地缓存:', key);
-    });
-
-    // 重新获取当前周数
-    await getCurrentWeek();
-
-    // 重新获取作业列表
-    await fetchHomeworks();
-
-    ElMessage.success('作业列表刷新成功');
-  } catch (error) {
-    console.error('强制刷新失败:', error);
-    ElMessage.error('刷新失败，请重试');
+// 监听历史作业对话框关闭事件，刷新最新作业列表
+watch(() => historyDialogVisible.value, (newVal) => {
+  if (!newVal) { // 当对话框关闭时
+    fetchHomeworks(); // 刷新作业列表
   }
-};
+});
+
+// 添加一个定时刷新函数，每隔一段时间自动刷新作业列表
+let refreshInterval = null;
+
+onMounted(() => {
+  fetchHomeworks();
+  // 设置自动刷新，每5分钟刷新一次
+  refreshInterval = setInterval(() => {
+    fetchHomeworks();
+  }, 5 * 60 * 1000);
+});
+
+onUnmounted(() => {
+  // 组件卸载时清除定时器
+  if (refreshInterval) {
+    clearInterval(refreshInterval);
+  }
+});
 </script>
 
 <style lang="less" scoped>

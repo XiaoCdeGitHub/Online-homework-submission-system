@@ -48,11 +48,6 @@
             <Refresh />
           </el-icon> 刷新列表
         </el-button>
-        <el-button type="warning" size="small" plain @click="forceRefreshHomeworks" :loading="loading">
-          <el-icon>
-            <Refresh />
-          </el-icon> 强制刷新
-        </el-button>
       </div>
     </div>
 
@@ -121,7 +116,7 @@ import { ChineseTransformGreenwich } from '../../utils/date';
 import { weekToBeWorkName } from '../../utils/work';
 import { directionOptionList, weekStageList } from '../../data/admin';
 import { publicJobs, updateStatus, deleteUser } from '@/service/api/admin'
-import { ref, onMounted, computed, onUnmounted } from 'vue';
+import { ref, onMounted, computed } from 'vue';
 import { ElMessage } from 'element-plus';
 import { Refresh, SwitchButton } from '@element-plus/icons-vue';
 import { downloadHomeworkFile, getRecentTask, getAllTasks, getSubmissionCount, checkHomeworkSubmitted } from '@/service/api/homework';
@@ -559,23 +554,7 @@ const downloadHomework = async (homework) => {
 // 组件挂载时获取作业列表
 onMounted(() => {
   fetchHomeworks();
-  // 定期刷新作业列表状态，避免状态不一致问题
-  setRefreshTimer();
 });
-
-// 设置定期刷新定时器
-const setRefreshTimer = () => {
-  // 每5分钟自动刷新一次作业列表
-  const timer = setInterval(() => {
-    console.log('自动刷新作业列表...');
-    fetchHomeworks();
-  }, 5 * 60 * 1000); // 5分钟
-
-  // 在组件卸载时清除定时器
-  onUnmounted(() => {
-    clearInterval(timer);
-  });
-};
 
 // 显示历史作业对话框
 const showHistoryHomeworksDialog = () => {
@@ -636,49 +615,6 @@ const confirmLogout = () => {
   } catch (error) {
     console.error('登出失败:', error);
     ElMessage.error('退出登录失败，请重试');
-  }
-};
-
-// 强制刷新作业列表，清除缓存后重新获取
-const forceRefreshHomeworks = async () => {
-  try {
-    // 显示刷新中提示
-    ElMessage.info('正在刷新作业列表...');
-
-    // 清除可能影响状态判断的本地缓存
-    const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}');
-    const userId = userInfo.userId || userInfo.number;
-
-    // 清除本地存储中可能与作业相关的缓存
-    const keysToRemove = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && (
-        key.includes('homework') ||
-        key.includes('submission') ||
-        key.includes('task') ||
-        key.includes('workStatus')
-      )) {
-        keysToRemove.push(key);
-      }
-    }
-
-    // 删除收集的键
-    keysToRemove.forEach(key => {
-      localStorage.removeItem(key);
-      console.log('清除本地缓存:', key);
-    });
-
-    // 重新获取当前周数
-    await getCurrentWeek();
-
-    // 重新获取作业列表
-    await fetchHomeworks();
-
-    ElMessage.success('作业列表刷新成功');
-  } catch (error) {
-    console.error('强制刷新失败:', error);
-    ElMessage.error('刷新失败，请重试');
   }
 };
 </script>
