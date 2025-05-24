@@ -113,9 +113,9 @@ const validateForm = () => {
   if (!formData.password) {
     errors.push('请输入密码')
   }
-  // else if (!isPassword(formData.password)) {
-  //   errors.push('密码格式不正确')
-  // }
+  else if (!isPassword(formData.password)) {
+    errors.push('密码格式不正确')
+  }
 
   // 如果有错误，显示第一个错误并返回false
   if (errors.length > 0) {

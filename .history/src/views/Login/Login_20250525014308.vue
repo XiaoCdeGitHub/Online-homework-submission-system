@@ -2,7 +2,7 @@
  * @Author: cuiding 1692338302@qq.com
  * @Date: 2024-06-20 06:22:32
  * @LastEditors: cuiding 1692338302@qq.com
- * @LastEditTime: 2025-05-25 01:51:30
+ * @LastEditTime: 2025-05-25 01:07:44
  * @FilePath: /YunJiaoYunJi-master/src/views/Login/Login.vue
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 -->
@@ -94,15 +94,14 @@ const validateForm = () => {
   // 学号验证
   if (!formData.number) {
     errors.push('请输入学号')
+  } else {
+    const studentIdStr = String(formData.number)
+    if (studentIdStr.length !== 10) {
+      errors.push('学号必须是10位数字')
+    } else if (!/^20\d{8}$/.test(studentIdStr)) {
+      errors.push('学号格式不正确，应为以20开头的10位数字')
+    }
   }
-  // else {
-  //   const studentIdStr = String(formData.number)
-  //   if (studentIdStr.length !== 10) {
-  //     errors.push('学号必须是10位数字')
-  //   } else if (!/^20\d{8}$/.test(studentIdStr)) {
-  //     errors.push('学号格式不正确，应为以20开头的10位数字')
-  //   }
-  // }
 
   // 姓名验证
   if (!formData.name || formData.name.trim() === '') {
@@ -112,10 +111,9 @@ const validateForm = () => {
   // 密码验证
   if (!formData.password) {
     errors.push('请输入密码')
+  } else if (!isPassword(formData.password)) {
+    errors.push('密码格式不正确')
   }
-  // else if (!isPassword(formData.password)) {
-  //   errors.push('密码格式不正确')
-  // }
 
   // 如果有错误，显示第一个错误并返回false
   if (errors.length > 0) {
