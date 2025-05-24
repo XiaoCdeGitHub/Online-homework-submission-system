@@ -135,35 +135,7 @@ export const getHistorySubmit = async (userId: string): Promise<HomeworkResponse
     const res = await axios.post<any, any>('/user/historySubmit', { userId });
     console.log('获取历史提交记录响应:', res);
 
-    // 处理新的homeworkList数据格式
-    if (res.code === 200 && res.data && res.data.homeworkList && Array.isArray(res.data.homeworkList) && res.data.homeworkList.length > 0) {
-      // 将homeworkList转换为SubmissionHistory格式的数组
-      const homeworkList = res.data.homeworkList;
-      const submissions: SubmissionHistory[] = homeworkList.map((homework: any) => {
-        // 从URL中提取文件名
-        const urlParts = homework.homeworkUrl ? homework.homeworkUrl.split('/') : [];
-        const fileName = urlParts.length > 0 ? urlParts[urlParts.length - 1] : '未知文件';
-
-        return {
-          id: homework.homeworkId || `history-${Math.random()}`,
-          userId: userId,
-          fileName: fileName,
-          fileUrl: homework.homeworkUrl || '',
-          comments: homework.notice || '历史提交',
-          weeks: homework.weeks || 0,
-          submitTime: homework.createdAt || homework.startTime || new Date().toISOString(),
-          status: 1 // 默认状态为已通过
-        };
-      });
-
-      return {
-        code: 200,
-        message: '获取历史记录成功',
-        data: submissions
-      };
-    }
-
-    // 继续保留原来处理homeworkUrlList的兼容代码
+    // 处理homeworkUrlList数据 - 如果有homeworkUrlList字段但没有正常data字段
     if (res.code === 200 && res.data && res.data.homeworkUrlList && Array.isArray(res.data.homeworkUrlList) && res.data.homeworkUrlList.length > 0) {
       // 将homeworkUrlList转换为SubmissionHistory格式的数组
       const homeworkUrlList = res.data.homeworkUrlList;
@@ -544,16 +516,8 @@ export const getAllTasks = async (userId: string, direction: string): Promise<Ho
 
     console.log('获取全部任务API响应:', res);
 
-    // 处理新的homeworkList数据格式
-    if (res.code === 200 && res.data && res.data.homeworkList) {
-      return {
-        code: res.code,
-        message: res.msg || '获取全部任务成功',
-        data: res.data
-      };
-    }
-
-    // 继续保留原来处理homeworkUrlList的兼容代码
+    // 如果接口直接返回了homeworkUrlList数据格式，不处理，直接返回
+    // 让调用方处理这个特殊格式
     if (res.code === 200 && res.data && res.data.homeworkUrlList) {
       return {
         code: res.code,

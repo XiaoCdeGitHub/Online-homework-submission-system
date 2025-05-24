@@ -544,16 +544,8 @@ export const getAllTasks = async (userId: string, direction: string): Promise<Ho
 
     console.log('获取全部任务API响应:', res);
 
-    // 处理新的homeworkList数据格式
-    if (res.code === 200 && res.data && res.data.homeworkList) {
-      return {
-        code: res.code,
-        message: res.msg || '获取全部任务成功',
-        data: res.data
-      };
-    }
-
-    // 继续保留原来处理homeworkUrlList的兼容代码
+    // 如果接口直接返回了homeworkUrlList数据格式，不处理，直接返回
+    // 让调用方处理这个特殊格式
     if (res.code === 200 && res.data && res.data.homeworkUrlList) {
       return {
         code: res.code,

@@ -181,35 +181,7 @@ const fetchAllHomeworks = async () => {
     const res = await getAllTasks(userId, direction);
     console.log('获取所有作业响应:', res);
 
-    // 处理新的homeworkList数据格式
-    if (res.code === 200 && res.data && res.data.homeworkList && Array.isArray(res.data.homeworkList) && res.data.homeworkList.length > 0) {
-      // 从homeworkList创建作业列表
-      const homeworkList = res.data.homeworkList;
-      const homeworks = homeworkList.map((homework) => {
-        return {
-          id: homework.homeworkId || `homework-${new Date().getTime()}-${Math.random()}`,
-          title: `第${homework.weeks}周作业`,
-          notice: homework.notice || '暂无说明',
-          fileName: homework.homeworkUrl ? homework.homeworkUrl.split('/').pop() : '',
-          fileUrl: homework.homeworkUrl || '',
-          startTime: homework.startTime || '',
-          endTime: homework.endTime || '',
-          weeks: homework.weeks || 0,
-          direction: homework.direction || direction,
-          isSubmitted: true, // 历史作业默认为已提交
-          isActive: false
-        };
-      });
-
-      // 按周数排序，最新的排在前面
-      homeworks.sort((a, b) => b.weeks - a.weeks);
-
-      allHomeworkList.value = homeworks;
-      console.log('使用homeworkList创建的作业列表:', allHomeworkList.value);
-      return;
-    }
-
-    // 保留原来处理homeworkUrlList的兼容代码
+    // 处理homeworkUrlList特殊情况
     if (res.code === 200 && res.data && res.data.homeworkUrlList && Array.isArray(res.data.homeworkUrlList) && res.data.homeworkUrlList.length > 0) {
       // 从homeworkUrlList创建作业列表
       const homeworkUrlList = res.data.homeworkUrlList;
