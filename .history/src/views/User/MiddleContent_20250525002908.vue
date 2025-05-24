@@ -298,8 +298,6 @@
 </template>
 
 <script setup lang="ts">
-//取消本文件的ts类型检查
-// @ts-nocheck
 import {
   Location, Flag, Finished, Document, User, SuccessFilled, UploadFilled, Warning,
   ChatDotRound, Refresh
@@ -322,12 +320,12 @@ import { useRoleStore } from "@/stores/role";
 import { FileUpload } from "@/models/FileUpload";
 import { Homework } from "@/models/Homeworks";
 import { fileURLToName, getFileIcon, getExt, CSVToArray } from "@/utils/index";
-import GetNameFromPath from "@/components/GetNameFromPath/index.vue";
-import UploadInfo from "@/components/UploadInfo/upload-info.vue";
-import { MarkrareData } from "@/models/MarkrareData";
-import { markrare } from "@/utils/markrare.js";
-import { IMarkedWord, MarkrareEvents } from "@/models/Markrare.interface";
-import { Watch } from "vue-class-component";
+// import GetNameFromPath from "@/components/GetNameFromPath/index.vue";
+// import UploadInfo from "@/components/UploadInfo/upload-info.vue";
+// import { MarkrareData } from "@/models/MarkrareData";
+// import { markrare } from "@/utils/markrare.js";
+// import { IMarkedWord, MarkrareEvents } from "@/models/Markrare.interface";
+// import { Watch } from "vue-class-component";
 import { useUserStore } from "@/stores/user";
 import { useDirectionStore } from "@/stores/direction";
 import type { UploadUserFile } from "element-plus";

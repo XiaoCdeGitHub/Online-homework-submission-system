@@ -2,7 +2,7 @@
  * @Author: cuiding 1692338302@qq.com
  * @Date: 2024-06-20 06:22:32
  * @LastEditors: cuiding 1692338302@qq.com
- * @LastEditTime: 2025-05-25 01:07:44
+ * @LastEditTime: 2025-05-25 00:56:43
  * @FilePath: /YunJiaoYunJi-master/src/views/Login/Login.vue
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 -->
@@ -177,8 +177,11 @@ const handleLogin = async () => {
       password: formData.password
     })
 
-    console.log('登录响应:', res)
-    console.log('登录响应数据结构:', JSON.stringify(res?.data || {}, null, 2))
+    // 只在开发环境下输出详细日志
+    if (process.env.NODE_ENV === 'development') {
+      console.log('登录响应:', res)
+      console.log('登录响应数据结构:', JSON.stringify(res?.data || {}, null, 2))
+    }
 
     if (res?.code === 200) {
       // 从登录响应中提取数据
@@ -321,12 +324,26 @@ const handleLogin = async () => {
       } else {
         router.push('/user')
       }
+    } else if (res?.code !== undefined) {
+      // 如果后端已经返回了错误信息，并且这个错误可能已经被拦截器处理过，
+      // 这里就不再显示错误提示，避免重复提示
+      console.log('登录失败，错误码:', res.code, '错误信息:', res.message || '未知错误')
     } else {
+      // 其他未知错误情况下才显示消息
       ElMessage.error(res?.message || res?.msg || '登录失败')
     }
   } catch (error: any) {
-    console.error('登录失败:', error)
-    ElMessage.error(error?.response?.data?.message || error?.message || '登录失败，请稍后重试')
+    // 检查错误对象，如果有标记表示已经显示过错误提示，则不再显示
+    if (!error._errorShown) {
+      console.error('登录失败:', error)
+
+      // 避免显示详细的技术错误给用户
+      const userFriendlyMessage = '登录失败，请检查网络连接或稍后重试'
+      ElMessage.error(userFriendlyMessage)
+
+      // 标记这个错误已经显示过提示
+      error._errorShown = true
+    }
   }
 }
 

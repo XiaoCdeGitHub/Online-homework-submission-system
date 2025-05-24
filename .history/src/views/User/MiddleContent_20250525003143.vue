@@ -298,28 +298,22 @@
 </template>
 
 <script setup lang="ts">
-//取消本文件的ts类型检查
-// @ts-nocheck
-import {
-  Location, Flag, Finished, Document, User, SuccessFilled, UploadFilled, Warning,
-  ChatDotRound, Refresh
-} from '@element-plus/icons-vue'
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
 import { uploadHomework, getHistorySubmit, getRecentTask } from '@/service/api/homework'
 import { getCurrentWeeks } from '@/service/api/adminHomework'
 import { getGroupInfo, getSelectCondition } from '@/service/api/adminHomework'
-import { getWeek } from "date-fns";
-import { useStore } from "vuex";
+// import { getWeek } from "date-fns";
+// import { useStore } from "vuex";
 import SvgIcon from "../../components/SvgIcon/index.vue";
-import { teacherGetCurrent } from "../../api/assignment";
-import { fetchCurrentTask } from "../../api/adminHomework";
-import { ElLoading, ElUpload } from "element-plus";
-import { uploadFile, UploadRawFile } from "../../api/file";
-import { FileStatistic } from "../../models/FileStatistic";
+// import { teacherGetCurrent } from "../../api/assignment";
+// import { fetchCurrentTask } from "../../api/adminHomework";
+// import { ElLoading, ElUpload } from "element-plus";
+// import { uploadFile, UploadRawFile } from "../../api/file";
+// import { FileStatistic } from "../../models/FileStatistic";
 import { storeToRefs } from "pinia";
-import { useRoleStore } from "@/stores/role";
-import { FileUpload } from "@/models/FileUpload";
+// import { useRoleStore } from "@/stores/role";
+// import { FileUpload } from "@/models/FileUpload";
 import { Homework } from "@/models/Homeworks";
 import { fileURLToName, getFileIcon, getExt, CSVToArray } from "@/utils/index";
 import GetNameFromPath from "@/components/GetNameFromPath/index.vue";

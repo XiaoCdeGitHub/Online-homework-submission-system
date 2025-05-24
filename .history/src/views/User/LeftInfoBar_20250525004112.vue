@@ -792,7 +792,7 @@ input {
 
 .logout-container {
   position: absolute;
-  bottom: 20px;
+  bottom: 0px;
   left: 0;
   right: 0;
   display: flex;

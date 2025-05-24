@@ -298,23 +298,21 @@
 </template>
 
 <script setup lang="ts">
-//取消本文件的ts类型检查
-// @ts-nocheck
-import {
-  Location, Flag, Finished, Document, User, SuccessFilled, UploadFilled, Warning,
-  ChatDotRound, Refresh
-} from '@element-plus/icons-vue'
+// import {
+//   Location, Flag, Finished, Document, User, SuccessFilled, UploadFilled, Warning,
+//   ChatDotRound, Refresh
+// } from '@element-plus/icons-vue'
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
 import { uploadHomework, getHistorySubmit, getRecentTask } from '@/service/api/homework'
 import { getCurrentWeeks } from '@/service/api/adminHomework'
 import { getGroupInfo, getSelectCondition } from '@/service/api/adminHomework'
-import { getWeek } from "date-fns";
-import { useStore } from "vuex";
+// import { getWeek } from "date-fns";
+// import { useStore } from "vuex";
 import SvgIcon from "../../components/SvgIcon/index.vue";
-import { teacherGetCurrent } from "../../api/assignment";
-import { fetchCurrentTask } from "../../api/adminHomework";
-import { ElLoading, ElUpload } from "element-plus";
+// import { teacherGetCurrent } from "../../api/assignment";
+// import { fetchCurrentTask } from "../../api/adminHomework";
+// import { ElLoading, ElUpload } from "element-plus";
 import { uploadFile, UploadRawFile } from "../../api/file";
 import { FileStatistic } from "../../models/FileStatistic";
 import { storeToRefs } from "pinia";
@@ -322,16 +320,16 @@ import { useRoleStore } from "@/stores/role";
 import { FileUpload } from "@/models/FileUpload";
 import { Homework } from "@/models/Homeworks";
 import { fileURLToName, getFileIcon, getExt, CSVToArray } from "@/utils/index";
-import GetNameFromPath from "@/components/GetNameFromPath/index.vue";
-import UploadInfo from "@/components/UploadInfo/upload-info.vue";
-import { MarkrareData } from "@/models/MarkrareData";
-import { markrare } from "@/utils/markrare.js";
-import { IMarkedWord, MarkrareEvents } from "@/models/Markrare.interface";
-import { Watch } from "vue-class-component";
+// import GetNameFromPath from "@/components/GetNameFromPath/index.vue";
+// import UploadInfo from "@/components/UploadInfo/upload-info.vue";
+// import { MarkrareData } from "@/models/MarkrareData";
+// import { markrare } from "@/utils/markrare.js";
+// import { IMarkedWord, MarkrareEvents } from "@/models/Markrare.interface";
+// import { Watch } from "vue-class-component";
 import { useUserStore } from "@/stores/user";
-import { useDirectionStore } from "@/stores/direction";
+// import { useDirectionStore } from "@/stores/direction";
 import type { UploadUserFile } from "element-plus";
-import { Plus, Delete } from "@element-plus/icons-vue";
+// import { Plus, Delete } from "@element-plus/icons-vue";
 import { cleanExpiredGroupData, generateGroupStorageKey } from "@/utils/localStorage";
 
 // 用户数据，初始化为默认值

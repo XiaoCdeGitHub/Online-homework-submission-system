@@ -298,40 +298,34 @@
 </template>
 
 <script setup lang="ts">
-//取消本文件的ts类型检查
-// @ts-nocheck
-import {
-  Location, Flag, Finished, Document, User, SuccessFilled, UploadFilled, Warning,
-  ChatDotRound, Refresh
-} from '@element-plus/icons-vue'
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
 import { uploadHomework, getHistorySubmit, getRecentTask } from '@/service/api/homework'
 import { getCurrentWeeks } from '@/service/api/adminHomework'
 import { getGroupInfo, getSelectCondition } from '@/service/api/adminHomework'
-import { getWeek } from "date-fns";
-import { useStore } from "vuex";
+// import { getWeek } from "date-fns";
+// import { useStore } from "vuex";
 import SvgIcon from "../../components/SvgIcon/index.vue";
-import { teacherGetCurrent } from "../../api/assignment";
-import { fetchCurrentTask } from "../../api/adminHomework";
-import { ElLoading, ElUpload } from "element-plus";
-import { uploadFile, UploadRawFile } from "../../api/file";
-import { FileStatistic } from "../../models/FileStatistic";
+// import { teacherGetCurrent } from "../../api/assignment";
+// import { fetchCurrentTask } from "../../api/adminHomework";
+// import { ElLoading, ElUpload } from "element-plus";
+// import { uploadFile, UploadRawFile } from "../../api/file";
+// import { FileStatistic } from "../../models/FileStatistic";
 import { storeToRefs } from "pinia";
-import { useRoleStore } from "@/stores/role";
-import { FileUpload } from "@/models/FileUpload";
-import { Homework } from "@/models/Homeworks";
-import { fileURLToName, getFileIcon, getExt, CSVToArray } from "@/utils/index";
+// import { useRoleStore } from "@/stores/role";
+// import { FileUpload } from "@/models/FileUpload";
+// import { Homework } from "@/models/Homeworks";
+// import { fileURLToName, getFileIcon, getExt, CSVToArray } from "@/utils/index";
 import GetNameFromPath from "@/components/GetNameFromPath/index.vue";
 import UploadInfo from "@/components/UploadInfo/upload-info.vue";
-import { MarkrareData } from "@/models/MarkrareData";
-import { markrare } from "@/utils/markrare.js";
-import { IMarkedWord, MarkrareEvents } from "@/models/Markrare.interface";
-import { Watch } from "vue-class-component";
+// import { MarkrareData } from "@/models/MarkrareData";
+// import { markrare } from "@/utils/markrare.js";
+// import { IMarkedWord, MarkrareEvents } from "@/models/Markrare.interface";
+// import { Watch } from "vue-class-component";
 import { useUserStore } from "@/stores/user";
-import { useDirectionStore } from "@/stores/direction";
+// import { useDirectionStore } from "@/stores/direction";
 import type { UploadUserFile } from "element-plus";
-import { Plus, Delete } from "@element-plus/icons-vue";
+// import { Plus, Delete } from "@element-plus/icons-vue";
 import { cleanExpiredGroupData, generateGroupStorageKey } from "@/utils/localStorage";
 
 // 用户数据，初始化为默认值
@@ -360,7 +354,7 @@ const selectedFile = ref(null) // 添加选中文件的引用
 const uploadUrl = '#' // 设置为 # 表示不使用自动上传
 
 // 获取状态标签类型
-const getStatusTagType = (status) => {
+const getStatusTagType = (status: number) => {
   switch (status) {
     case 0: return 'info'    // 待审核
     case 1: return 'success' // 已通过
@@ -370,7 +364,7 @@ const getStatusTagType = (status) => {
 }
 
 // 获取状态文本
-const getStatusText = (status) => {
+const getStatusText = (status: number) => {
   switch (status) {
     case 0: return '待审核'
     case 1: return '已通过'
@@ -468,7 +462,7 @@ const getUserInfoFromStorage = () => {
 }
 
 // 文件上传前的验证
-const beforeUpload = (uploadFile) => {
+const beforeUpload = (uploadFile: any) => {
   const file = uploadFile.raw || uploadFile;
 
   // 验证文件类型
@@ -503,13 +497,13 @@ const beforeUpload = (uploadFile) => {
 }
 
 // 上传进度处理
-const uploadProgress = (event, file, fileList) => {
+const uploadProgress = (event: any, file: any, fileList: any) => {
   uploadPercentage.value = Math.round(event.percent)
   uploadStatusText.value = `上传中... ${uploadPercentage.value}%`
 }
 
 // 上传成功处理
-const handleUploadSuccess = (response, file, fileList) => {
+const handleUploadSuccess = (response: any, file: any, fileList: any) => {
   uploading.value = false
 
   if (response.code === 200) {
@@ -549,7 +543,7 @@ const handleUploadSuccess = (response, file, fileList) => {
 }
 
 // 上传错误处理
-const handleUploadError = (error, file, fileList) => {
+const handleUploadError = (error: any, file: any, fileList: any) => {
   uploading.value = false
   uploadStatus.value = 'exception'
   uploadStatusText.value = '上传失败！'
@@ -819,11 +813,8 @@ const fetchCurrentWeek = async () => {
 // 获取当前任务信息
 const fetchCurrentTask = async () => {
   try {
-    const { userId, direction } = getUserInfoFromStorage()
+    const { userId } = getUserInfoFromStorage()
     if (!userId) return
-
-    // 使用当前周数作为参数
-    const weeks = currentWeek.value || 1;
 
     // 更新小组进度标题，包含周数信息
     updateGroupProgressTitle();
@@ -924,7 +915,7 @@ const loadGroupStats = async () => {
         console.log('小组学生列表:', studentList)
 
         // 计算已完成人数
-        const finishedCount = studentList.filter(student => {
+        const finishedCount = studentList.filter((student: any) => {
           // 使用检查并修正函数获取正确的完成状态
           return checkAndFixFinishCondition(student);
         }).length;
@@ -1124,13 +1115,13 @@ const loadingGroupMembers = ref(false)
 const groupMembers = ref<any[]>([])  // 使用any类型避免类型错误
 
 // 处理关闭小组详情对话框
-const handleCloseGroupDetailDialog = (done) => {
+const handleCloseGroupDetailDialog = (done: () => void) => {
   // 可以在这里添加关闭前的确认逻辑，如果需要的话
   done()
 }
 
 // 添加检查并修复可能不正确的finishCondition值的函数
-const checkAndFixFinishCondition = (student) => {
+const checkAndFixFinishCondition = (student: any) => {
   // 记录原始值，用于调试
   const originalFinishCondition = student.finishCondition;
 
@@ -1207,7 +1198,7 @@ const refreshGroupMembers = async () => {
         if (response.data && Array.isArray(response.data) && response.data.length > 0) {
           // 添加每个学生的完成状态日志
           console.log('小组成员原始数据详情:')
-          response.data.forEach(student => {
+          response.data.forEach((student: any) => {
             console.log(`学生: ${student.name || student.user_name}`, {
               userId: student.userId,
               finishCondition: student.finishCondition,
@@ -1222,7 +1213,7 @@ const refreshGroupMembers = async () => {
           })
 
           // 转换数据格式
-          groupMembers.value = response.data.map(student => {
+          groupMembers.value = response.data.map((student: any) => {
             // 检查并修正finishCondition
             const isFinishedStatus = checkAndFixFinishCondition(student);
 
@@ -1276,7 +1267,7 @@ const refreshGroupMembers = async () => {
 }
 
 // 添加备选方案函数，当主要接口失败时调用
-const fallbackToGroupInfo = async (userInfo, direction, group) => {
+const fallbackToGroupInfo = async (userInfo: any, direction: any, group: any) => {
   try {
     // 获取小组成员数据
     const response = await getGroupInfo({
@@ -1290,7 +1281,7 @@ const fallbackToGroupInfo = async (userInfo, direction, group) => {
       // 检查是否有学生列表
       if (response.data && Array.isArray(response.data.studentList) && response.data.studentList.length > 0) {
         // 添加每个学生的完成状态日志
-        console.log('备选方案小组成员原始数据:', response.data.studentList.map(student => ({
+        console.log('备选方案小组成员原始数据:', response.data.studentList.map((student: any) => ({
           name: student.name || student.user_name,
           userId: student.userId,
           finishCondition: student.finishCondition,
@@ -1299,7 +1290,7 @@ const fallbackToGroupInfo = async (userInfo, direction, group) => {
         })));
 
         // 处理学生列表
-        groupMembers.value = response.data.studentList.map(student => {
+        groupMembers.value = response.data.studentList.map((student: any) => {
           // 检查并修正finishCondition
           const isFinishedStatus = checkAndFixFinishCondition(student);
 

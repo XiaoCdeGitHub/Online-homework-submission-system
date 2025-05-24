@@ -806,8 +806,7 @@ input {
   height: 5vh;
   background-color: #fff;
   color: #f56c6c;
-  border: 1px solid #f56c6c;
-  border-radius: 8px;
+  border: px solid #f56c6c;
   font-weight: bold;
   transition: all 0.3s ease;
 

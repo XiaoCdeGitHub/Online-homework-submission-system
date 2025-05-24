@@ -2,7 +2,7 @@
  * @Author: cuiding 1692338302@qq.com
  * @Date: 2024-06-20 06:22:32
  * @LastEditors: cuiding 1692338302@qq.com
- * @LastEditTime: 2025-05-25 01:07:44
+ * @LastEditTime: 2025-05-25 00:52:44
  * @FilePath: /YunJiaoYunJi-master/src/views/Login/Login.vue
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 -->
@@ -29,7 +29,7 @@
             </div>
             <div class="Name">
               <h3>姓名 Name</h3>
-              <input type="text" v-model="formData.name" placeholder="请输入姓名">
+              <input type="text" name="name" id="name">
               <img :src="nameImg" alt="Nm">
             </div>
             <div class="PWord">
@@ -78,7 +78,6 @@ const showPassword = ref(false)
 
 const formData = reactive({
   number: null as number | null,
-  name: '',
   password: ''
 })
 
@@ -89,38 +88,33 @@ const togglePassword = () => {
 
 // 表单验证
 const validateForm = () => {
-  const errors = []
-
-  // 学号验证
   if (!formData.number) {
-    errors.push('请输入学号')
-  } else {
-    const studentIdStr = String(formData.number)
-    if (studentIdStr.length !== 10) {
-      errors.push('学号必须是10位数字')
-    } else if (!/^20\d{8}$/.test(studentIdStr)) {
-      errors.push('学号格式不正确，应为以20开头的10位数字')
-    }
-  }
-
-  // 姓名验证
-  if (!formData.name || formData.name.trim() === '') {
-    errors.push('请输入姓名')
-  }
-
-  // 密码验证
-  if (!formData.password) {
-    errors.push('请输入密码')
-  } else if (!isPassword(formData.password)) {
-    errors.push('密码格式不正确')
-  }
-
-  // 如果有错误，显示第一个错误并返回false
-  if (errors.length > 0) {
-    ElMessage.error(errors[0])
+    ElMessage.error('请输入学号')
     return false
   }
 
+  // 添加学号格式校验
+  const studentIdStr = String(formData.number)
+  if (studentIdStr.length !== 10) {
+    ElMessage.error('学号必须是10位数字')
+    return false
+  }
+
+  // 验证学号格式：以20开头的10位数字
+  const studentIdPattern = /^20\d{8}$/
+  if (!studentIdPattern.test(studentIdStr)) {
+    ElMessage.error('学号格式不正确，应为以20开头的10位数字')
+    return false
+  }
+
+  if (!formData.password) {
+    ElMessage.error('请输入密码')
+    return false
+  }
+  if (!isPassword(formData.password)) {
+    ElMessage.error('密码格式不正确')
+    return false
+  }
   return true
 }
 
@@ -204,7 +198,7 @@ const handleLogin = async () => {
         currentWeek?: number;
       } = {
         // 初始化默认值
-        name: formData.name || '',
+        name: '',
         userId: '',
         number: formData.number || null,
         qqnum: '',

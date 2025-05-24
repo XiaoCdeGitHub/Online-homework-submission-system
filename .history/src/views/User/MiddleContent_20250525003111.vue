@@ -298,18 +298,12 @@
 </template>
 
 <script setup lang="ts">
-//取消本文件的ts类型检查
-// @ts-nocheck
-import {
-  Location, Flag, Finished, Document, User, SuccessFilled, UploadFilled, Warning,
-  ChatDotRound, Refresh
-} from '@element-plus/icons-vue'
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
 import { uploadHomework, getHistorySubmit, getRecentTask } from '@/service/api/homework'
 import { getCurrentWeeks } from '@/service/api/adminHomework'
 import { getGroupInfo, getSelectCondition } from '@/service/api/adminHomework'
-import { getWeek } from "date-fns";
+// import { getWeek } from "date-fns";
 import { useStore } from "vuex";
 import SvgIcon from "../../components/SvgIcon/index.vue";
 import { teacherGetCurrent } from "../../api/assignment";

@@ -298,8 +298,7 @@
 </template>
 
 <script setup lang="ts">
-//取消本文件的ts类型检查
-// @ts-nocheck
+//取消本文
 import {
   Location, Flag, Finished, Document, User, SuccessFilled, UploadFilled, Warning,
   ChatDotRound, Refresh
