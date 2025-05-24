@@ -56,8 +56,6 @@ const isAll = ref(false);
 const stufilterList = ref([]);
 // 添加小组总人数变量
 const totalStudentsCount = ref(0);
-// 添加小组完成人数变量
-const groupFinishedCount = ref(0);
 const groupStore = useGroupStore();
 
 // 获取当前周数
@@ -129,11 +127,7 @@ const fetchGroupTotalCount = async () => {
         // 正确的数据格式: { allCount: 数字, finishCount: 数字 }
         if (res.data.allCount !== undefined) {
           totalStudentsCount.value = res.data.allCount;
-          // 同时保存完成人数
-          if (res.data.finishCount !== undefined) {
-            groupFinishedCount.value = res.data.finishCount;
-          }
-          console.log('从allCount中获取总人数:', totalStudentsCount.value, '完成人数:', groupFinishedCount.value);
+          console.log('从allCount中获取总人数:', totalStudentsCount.value);
           return; // 成功获取，直接返回
         }
         // 若返回数据包含studentList属性，获取列表长度作为总人数
@@ -220,9 +214,8 @@ onMounted(async () => {
 
 // 监听store中的筛选条件变化
 watch(() => [groupStore.direction, groupStore.group, groupStore.weeks], async () => {
-  // 更新前先重置总人数和完成人数，避免显示旧数据
+  // 更新前先重置总人数，避免显示旧数据
   totalStudentsCount.value = 0;
-  groupFinishedCount.value = 0;
 
   // 更新筛选条件
   filterParams.direction = groupStore.direction;
@@ -347,18 +340,10 @@ const downloadExcel = async () => {
 
 // 计算完成比例
 const getRate = () => {
-  // 使用从getGroupInfo获取的完成人数(如果可用)
-  let finishedCount = 0;
+  // 计算已完成的学生数量
+  const finishedCount = stufilterList.value.filter(item => item.is_apply).length;
 
-  // 如果有getGroupInfo接口返回的数据中包含finishCount，优先使用它
-  if (totalStudentsCount.value > 0 && groupFinishedCount.value > 0) {
-    finishedCount = groupFinishedCount.value;
-  } else {
-    // 否则从stufilterList计算
-    finishedCount = stufilterList.value.filter(item => item.is_apply).length;
-  }
-
-  console.log('完成人数:', finishedCount, '总人数:', totalStudentsCount.value, '列表长度:', stufilterList.value.length);
+  console.log('完成人数:', finishedCount, '总人数:', totalStudentsCount.value, '当前列表长度:', stufilterList.value.length);
 
   // 使用小组总人数作为分母，如果没有获取到总人数，则使用当前列表长度作为备用
   const total = totalStudentsCount.value > 0 ? totalStudentsCount.value : stufilterList.value.length;

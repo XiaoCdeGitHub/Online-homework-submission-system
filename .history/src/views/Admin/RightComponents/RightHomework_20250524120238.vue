@@ -56,8 +56,6 @@ const isAll = ref(false);
 const stufilterList = ref([]);
 // 添加小组总人数变量
 const totalStudentsCount = ref(0);
-// 添加小组完成人数变量
-const groupFinishedCount = ref(0);
 const groupStore = useGroupStore();
 
 // 获取当前周数
@@ -93,7 +91,7 @@ const fetchStudentList = async () => {
       }));
       // 重置全选状态
       isAll.value = false;
-
+      
       // 获取小组总人数
       fetchGroupTotalCount();
     } else {
@@ -112,81 +110,35 @@ const fetchGroupTotalCount = async () => {
       console.warn('获取小组总人数失败: 筛选条件不完整');
       return;
     }
-
+    
     console.log('正在获取小组总人数，参数:', filterParams);
-
-    // 使用getGroupInfo API
-    try {
-      const res = await getGroupInfo({
-        direction: filterParams.direction,
-        group: filterParams.group,
-        weeks: filterParams.weeks
-      });
-
-      console.log('getGroupInfo API 返回结果:', res);
-
-      if (res.code === 200 && res.data) {
-        // 正确的数据格式: { allCount: 数字, finishCount: 数字 }
-        if (res.data.allCount !== undefined) {
-          totalStudentsCount.value = res.data.allCount;
-          // 同时保存完成人数
-          if (res.data.finishCount !== undefined) {
-            groupFinishedCount.value = res.data.finishCount;
-          }
-          console.log('从allCount中获取总人数:', totalStudentsCount.value, '完成人数:', groupFinishedCount.value);
-          return; // 成功获取，直接返回
-        }
-        // 若返回数据包含studentList属性，获取列表长度作为总人数
-        else if (res.data.studentList && Array.isArray(res.data.studentList)) {
-          totalStudentsCount.value = res.data.studentList.length;
-          console.log('从studentList中获取总人数:', totalStudentsCount.value);
-          return; // 成功获取，直接返回
-        }
-        // 若返回数据本身是数组，获取数组长度作为总人数
-        else if (Array.isArray(res.data)) {
-          totalStudentsCount.value = res.data.length;
-          console.log('从data数组中获取总人数:', totalStudentsCount.value);
-          return; // 成功获取，直接返回
-        } else {
-          console.warn('无法从返回数据中获取总人数，数据格式:', res.data);
-          // 继续尝试其他方式
-        }
-      } else {
-        console.warn('获取小组总人数失败:', res.message || '未知错误');
-        // 继续尝试其他方式
-      }
-    } catch (error) {
-      console.error('getGroupInfo API调用异常:', error);
-      // 继续尝试其他方式
-    }
-
-    // 如果上面的方法都失败了，尝试使用selectCondition来获取所有学生，不管作业提交状态
-    console.log('尝试通过selectCondition获取总人数');
-    try {
-      const res = await getSelectCondition({
-        direction: filterParams.direction,
-        group: filterParams.group,
-        weeks: filterParams.weeks
-      });
-
-      if (res.code === 200 && Array.isArray(res.data)) {
+    
+    const res = await getGroupInfo({
+      direction: filterParams.direction,
+      group: filterParams.group,
+      weeks: filterParams.weeks
+    });
+    
+    console.log('getGroupInfo API 返回结果:', res);
+    
+    if (res.code === 200 && res.data) {
+      // 若返回数据包含studentList属性，获取列表长度作为总人数
+      if (res.data.studentList && Array.isArray(res.data.studentList)) {
+        totalStudentsCount.value = res.data.studentList.length;
+        console.log('从studentList中获取总人数:', totalStudentsCount.value);
+      } 
+      // 若返回数据本身是数组，获取数组长度作为总人数
+      else if (Array.isArray(res.data)) {
         totalStudentsCount.value = res.data.length;
-        console.log('通过selectCondition获取总人数:', totalStudentsCount.value);
-        return;
+        console.log('从data数组中获取总人数:', totalStudentsCount.value);
       } else {
-        console.warn('通过selectCondition获取总人数失败');
+        console.warn('无法从返回数据中获取总人数，数据格式:', res.data);
       }
-    } catch (error) {
-      console.error('通过selectCondition获取总人数异常:', error);
-    }
-
-    // 如果所有方法都失败，使用当前学生列表长度作为备用
-    if (stufilterList.value.length > 0) {
-      totalStudentsCount.value = stufilterList.value.length;
-      console.log('使用当前学生列表长度作为总人数备用:', totalStudentsCount.value);
+    } else {
+      console.warn('获取小组总人数失败:', res.message || '未知错误');
     }
   } catch (error) {
-    console.error('获取小组总人数最外层异常:', error);
+    console.error('获取小组总人数异常:', error);
   }
 };
 
@@ -213,29 +165,17 @@ onMounted(async () => {
 
   // 获取学生列表
   await fetchStudentList();
-
+  
   // 确保获取小组总人数 (即使fetchStudentList中已调用，这里也再次调用以确保)
   await fetchGroupTotalCount();
 });
 
 // 监听store中的筛选条件变化
-watch(() => [groupStore.direction, groupStore.group, groupStore.weeks], async () => {
-  // 更新前先重置总人数和完成人数，避免显示旧数据
-  totalStudentsCount.value = 0;
-  groupFinishedCount.value = 0;
-
-  // 更新筛选条件
+watch(() => [groupStore.direction, groupStore.group, groupStore.weeks], () => {
   filterParams.direction = groupStore.direction;
   filterParams.group = groupStore.group;
   filterParams.weeks = groupStore.weeks;
-
-  // 先获取学生列表，然后确保更新总人数
-  await fetchStudentList();
-
-  // 确保单独调用一次获取总人数
-  if (filterParams.direction && filterParams.group && filterParams.weeks) {
-    await fetchGroupTotalCount();
-  }
+  fetchStudentList();
 }, { deep: true });
 
 // 更新全选状态
@@ -303,7 +243,7 @@ const Submit = async () => {
       ElMessage.warning('请确保已选择完整的筛选条件（方向、组别和周数）');
       return;
     }
-
+    
     // 调用批量下载API，传递必要参数
     await batchDownloadHomework({
       direction: filterParams.direction,
@@ -347,22 +287,14 @@ const downloadExcel = async () => {
 
 // 计算完成比例
 const getRate = () => {
-  // 使用从getGroupInfo获取的完成人数(如果可用)
-  let finishedCount = 0;
-
-  // 如果有getGroupInfo接口返回的数据中包含finishCount，优先使用它
-  if (totalStudentsCount.value > 0 && groupFinishedCount.value > 0) {
-    finishedCount = groupFinishedCount.value;
-  } else {
-    // 否则从stufilterList计算
-    finishedCount = stufilterList.value.filter(item => item.is_apply).length;
-  }
-
-  console.log('完成人数:', finishedCount, '总人数:', totalStudentsCount.value, '列表长度:', stufilterList.value.length);
-
+  // 计算已完成的学生数量
+  const finishedCount = stufilterList.value.filter(item => item.is_apply).length;
+  
+  console.log('完成人数:', finishedCount, '总人数:', totalStudentsCount.value, '当前列表长度:', stufilterList.value.length);
+  
   // 使用小组总人数作为分母，如果没有获取到总人数，则使用当前列表长度作为备用
   const total = totalStudentsCount.value > 0 ? totalStudentsCount.value : stufilterList.value.length;
-
+  
   return `${finishedCount}/${total}`;
 };
 

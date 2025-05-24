@@ -220,9 +220,8 @@ onMounted(async () => {
 
 // 监听store中的筛选条件变化
 watch(() => [groupStore.direction, groupStore.group, groupStore.weeks], async () => {
-  // 更新前先重置总人数和完成人数，避免显示旧数据
+  // 更新前先重置总人数，避免显示旧数据
   totalStudentsCount.value = 0;
-  groupFinishedCount.value = 0;
 
   // 更新筛选条件
   filterParams.direction = groupStore.direction;

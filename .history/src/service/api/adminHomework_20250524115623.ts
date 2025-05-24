@@ -483,8 +483,8 @@ export const getSelectCondition = async (params: {
             ...item,
             // 确保user_name字段存在，如果不存在则使用name或其他可用字段
             user_name: item.user_name || item.name || item.userName || `用户${item.userId}`,
-            // 修改逻辑：判断fileUrl是否为有效的URL，排除"无文件URL"等占位符
-            is_apply: !!item.fileUrl && item.fileUrl !== '无文件URL' && item.fileUrl !== '无' && item.fileUrl !== '无记录',
+            // 修改逻辑：使用fileUrl是否为空来判断作业是否提交，而不是使用finishCondition
+            is_apply: !!item.fileUrl,
             isSelect: false
         })) : [];
 
